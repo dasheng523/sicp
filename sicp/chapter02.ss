@@ -139,7 +139,7 @@
 
 (define (get-height ract)
   (abs (- (y-point (car ract))
-          (y-point (cdr ract)))))
+          (y-point (c(split-point (make-vect 0.5 0.0))dr ract)))))
 
 (define (girth-rectangle ract)
   (* 2 (+ (get-width ract)
