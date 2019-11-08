@@ -57,22 +57,36 @@
 
 (define url "http://www.baidu.com")
 
+(define (char*->string address)
+  (utf8->string
+   (apply bytevector
+          (let iter ([i 0])
+            (let ((bit (foreign-ref 'unsigned-8 address i)))
+              (if (= bit 0)
+                  '()
+                  (cons bit (iter (+ i 1)))))))))
+
 
 (define mgr (make-ftype-pointer mg_mgr (foreign-alloc 1)))
 
 (mg_mgr_init mgr 0)
 
 (define is-continue #t)
-
 (define handler
   (foreign-callable
    (lambda (conn ev p)
      (when (= MG_EV_HTTP_REPLY ev)
-       )
-     (display ev)
+       (let ([msgp (make-ftype-pointer
+                   http_message
+                   (ftype-pointer-address p))])
+         (char*->string
+          (ftype-ref mg_str (p)
+                     (ftype-ref http_message (message) msgp)))))
      (set! is-continue #f))
    ((* mg_connection) int void*)
    void))
+
+(lock-object handler)
 
 (mg_connect_http mgr (foreign-callable-entry-point handler) url "" "")
 
