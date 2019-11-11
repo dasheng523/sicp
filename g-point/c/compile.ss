@@ -1,4 +1,5 @@
 (library (c compile)
+  (export compile-on-linux compile-on-solaris compile-on-windows compile-on-mac)
   (import (chezscheme)
           (lib common))
 

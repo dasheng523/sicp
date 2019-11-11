@@ -3,8 +3,13 @@
   (export define-enumeration* define-function define-enum-ftype
           define-ffi-from-cform define-ffi-from-cforms
           machine-lib-suffix
-          with-pointer)
+          with-pointer
+          c-bin-dire
+          load-lib)
   (import (chezscheme))
+
+
+  (define c-bin-dire (string-append (caar (library-directories)) "/c"))
 
   ;; Uses make-enumeration to define an enum with the following:
   ;; function (name x) -> index
@@ -100,6 +105,10 @@
         [(i3le ti3le a6le ta6le) ".so.6"]
         [(i3osx ti3osx a6osx ta6osx) ".dylib"]
         [else ".so"])))
+
+  (define (load-lib name)
+    (load-shared-object (string-append c-bin-dire "/" name (machine-lib-suffix))))
+
 
 
   (define-syntax define-ffi-from-cform
