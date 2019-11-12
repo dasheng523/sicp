@@ -21,7 +21,11 @@
   (begin (load-lib "mongoose")
          (load-lib "mongoose-utils")))
 
+(define MG_EV_HTTP_REQUEST 100)
 (define MG_EV_HTTP_REPLY 101)
+(define MG_EV_HTTP_CHUNK 102)
+(define MG_EV_SSI_CALL 105)
+(define MG_EV_SSI_CALL_CTX 106)
 
 
 (define-ftype mg_str
@@ -69,36 +73,69 @@
 
 (define mg_connect_http
   (foreign-procedure "mg_connect_http"
-                     ((* mg_mgr) void* utf-8 utf-8 utf-8)
+                     (void* void* utf-8 utf-8 utf-8)
                      (* mg_connection)))
 
 (define mg_mgr_poll
   (foreign-procedure "mg_mgr_poll"
-                     ((* mg_mgr) int)
+                     (void* int)
                      int))
 
 (define mg_mgr_free
   (foreign-procedure "mg_mgr_free"
-                     ((* mg_mgr))
+                     (void*)
                      void))
 
+#|
+struct mg_connection *mg_bind(struct mg_mgr *mgr, const char *address,
+    MG_CB(mg_event_handler_t handler,
+    void *user_data));
+|#
+(define mg_bind
+  (foreign-procedure "mg_bind"
+                     (void* string void* void*)
+                     void*))
 
-(define url "http://www.baidu.com")
+#|
+void mg_send_head(struct mg_connection *n, int status_code,
+    int64_t content_length, const char *extra_headers);
+|#
+(define mg_send_head
+  (foreign-procedure
+   "mg_send_head"
+   (void* int integer-64 string)
+   void))
 
-(define (char*->string address)
-  (utf8->string
-   (apply bytevector
-          (let iter ([i 0])
-            (let ((bit (foreign-ref 'unsigned-8 address i)))
-              (if (= bit 0)
-                  '()
-                  (cons bit (iter (+ i 1)))))))))
+#|
+void mg_set_protocol_http_websocket(struct mg_connection *nc);
+|#
+(define mg_set_protocol_http_websocket
+  (foreign-procedure
+   "mg_set_protocol_http_websocket"
+   (void*)
+   void))
+
+#|
+void mg_send(struct mg_connection *, const void *buf, int len);
+|#
+(define mg_send_string
+  (foreign-procedure
+   "mg_send"
+   (void* string int)
+   void))
+(define mg_send
+  (foreign-procedure
+   "mg_send"
+   (void* void* int)
+   void))
+
 
 
 (define mgr (make-ftype-pointer mg_mgr (foreign-alloc 1000)))
-
 (mg_mgr_init (ftype-pointer-address mgr) 0)
 
+#|
+;; client
 (define handler
   (foreign-callable
    (lambda (conn ev p)
@@ -111,25 +148,87 @@
 
 (lock-object handler)
 
-(mg_connect_http mgr (foreign-callable-entry-point handler) url "" "")
+(define url "http://www.baidu.com")
+(mg_connect_http (ftype-pointer-address mgr)
+                 (foreign-callable-entry-point handler)
+                 url "" "")
 
-(define is-continue #t)
+|#
 
-(define server-thread #f)
+;; server
 
-(define start-server
-  (lambda ()
-    (if server-thread
-        (set! is-continue #t)
-        (set! server-thread
+
+
+(define server-handler
+  (foreign-callable
+   (lambda (conn ev p)
+     (when (= MG_EV_HTTP_REQUEST ev)
+       (let ([msgp (make-ftype-pointer http_message p)])
+         (display
+          (getstr (ftype-ref http_message (method) msgp)))
+         (newline)
+         #;(let printheader ([i 0])
+           (display (ftype-ref http_message (header_names i) msgp))
+           (newline)
+           (display (ftype-ref http_message (header_values i) msgp))
+           (if (< i 5)
+               (printheader (+ i 1))))
+         (let ([text "hello world!"])
+           (mg_send_head conn 200 (string-length text) "Content-Type: text/plain")
+           (mg_send_string conn text (string-length text))))))
+   (void* int void*)
+   void))
+
+(lock-object server-handler)
+
+(define conn (mg_bind (ftype-pointer-address mgr)
+                      "9000"
+                      (foreign-callable-entry-point server-handler)
+                      0))
+
+(mg_set_protocol_http_websocket conn)
+(mg_mgr_poll (ftype-pointer-address mgr) 1000)
+
+
+
+;; 创建Web服务器
+(define create-web-server
+  (lambda (port handler)
+    (let ([mgr #f]
+          [is-stop #f]
+          [fpoint
+           (let ([callback (foreign-callable handler (void* int void*) void)])
+             (lock-object callback)
+             (foreign-callable-entry-point callback))])
+      (define start
+        (lambda ()
+          (set! mgr (foreign-alloc 1000))
+          (set! is-stop #f)
+          (mg_mgr_init mgr 0)
+          (mg_set_protocol_http_websocket
+           (mg_bind mgr port fpoint 0))
           (fork-thread
            (lambda ()
              (let loop []
-               (when is-continue
-                 (mg_mgr_poll mgr 1000)
-                 (println 'ok)
-                 (loop)))))))))
+               (unless is-stop
+                 (println (mg_mgr_poll mgr 1000))
+                 (loop)))))))
+      (define stop
+        (lambda ()
+          (set! is-stop #t)
+          (server-thread #f)
+          (mg_mgr_free mgr)))
+
+      (lambda (x)
+        (record-case
+         x
+         [(start) () (start)]
+         [(stop) () (stop)])))))
+
+(define start-server
+  (lambda (server)
+    (server '(start))))
 
 (define stop-server
-  (lambda ()
-    (set! is-continue #f)))
+  (lambda (server)
+    (server '(stop))))
