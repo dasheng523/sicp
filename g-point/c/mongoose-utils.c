@@ -7,17 +7,17 @@ const char *getstr(struct mg_str s)
 
 const char *getstr2(struct mg_str *s)
 {
-  return s->p;
+  return &s->p;
 }
 
 size_t getLen(struct mg_str s)
 {
-  return s->len;
+  return s.len;
 }
 
 size_t getLen2(struct mg_str *s)
 {
-  return s->len;
+  return &s->len;
 }
 
 struct mg_str getMessage(struct http_message *hm)

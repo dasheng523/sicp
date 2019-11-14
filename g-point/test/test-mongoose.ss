@@ -46,65 +46,28 @@
 
 (define-ftype http_message
   (struct
-      [message (* mg_str)]
-    [body (* mg_str)]
-    [method (* mg_str)]
-    [uri (* mg_str)]
-    [proto (* mg_str)]
+      [message mg_str]
+    [body mg_str]
+    [method mg_str]
+    [uri mg_str]
+    [proto mg_str]
     [resp_code int]
-    [resp_status_msg (* mg_str)]
-    [query_string (* mg_str)]
-    [header_names (array 40 (* mg_str))]
-    [header_values (array 40 (* mg_str))]))
+    [resp_status_msg mg_str]
+    [query_string mg_str]
+    [header_names (array 40 mg_str)]
+    [header_values (array 40 mg_str)]))
 
-
-(define getLen
-  (foreign-procedure "getLen"
-                     ((* mg_str))
-                     int))
-
-(define getLen2
-  (foreign-procedure "getLen2"
-                     (void*)
-                     int))
 
 (define mg_mk_str
   (foreign-procedure "mg_mk_str"
                      (string)
-                     (* mg_str)))
+                     (& mg_str)))
 
 (define mg_strfree
   (foreign-procedure "mg_strfree"
-                     (void*)
+                     ((* mg_str))
                      void))
 
-(define getstr
-  (foreign-procedure "getstr"
-                     ((* mg_str))
-                     string))
-(define getstr2
-  (foreign-procedure "getstr"
-                     ((* mg_str))
-                     u8*))
-(define getstr3
-  (foreign-procedure "getstr"
-                     ((* mg_str))
-                     void*))
-
-(define getMessage
-  (foreign-procedure "getMessage"
-                     ((* http_message))
-                     (* mg_str)))
-
-(define getBody
-  (foreign-procedure "getBody"
-                     ((* http_message))
-                     (* mg_str)))
-
-(define getQueryString
-  (foreign-procedure "getQueryString"
-                     ((* http_message))
-                     (* mg_str)))
 
 ;; void mg_mgr_init(struct mg_mgr *mgr, void *user_data);
 (define mg_mgr_init
@@ -201,16 +164,26 @@ void mg_send(struct mg_connection *, const void *buf, int len);
 
 ;; server
 
-(define adfad
-  (lambda (mgstr)
-    (let ([p (getstr3 mgstr)])
-      (let loop ([len (getLen mgstr)]
-                 [i 0]
-                 [rs '()])
-        (if (= i len)
-            rs
-            (loop len (+ i 1)
-                  (append rs (list (foreign-ref 'char p i)))))))))
+(define (char*->string address)
+  (utf8->string
+   (apply bytevector
+          (let iter ([i 0])
+            (let ((bit (foreign-ref 'unsigned-8 address i)))
+              (if (= bit 0)
+                  '()
+                  (cons bit (iter (+ i 1)))))))))
+
+(define (char*->u8 fp len)
+  (let ([bt (make-bytevector len)]
+        [addr (ftype-pointer-address fp)])
+    (let loop ([i 0])
+      (if (= i len)
+          bt
+          (begin
+            (bytevector-u8-set! bt i
+                                (foreign-ref 'unsigned-8 addr i))
+            (loop (+ i 1)))))))
+
 
 
 (define aaa #f)
@@ -219,17 +192,17 @@ void mg_send(struct mg_connection *, const void *buf, int len);
 (define server-handler
   (foreign-callable
    (lambda (conn ev p)
-     (when (= MG_EV_HTTP_MULTIPART_REQUEST ev)
+     #;(when (= MG_EV_HTTP_MULTIPART_REQUEST ev)
        (println 'request)
        (println (getstr (ftype-ref http_message (message)
                                    (make-ftype-pointer http_message p)))))
-     (when (= MG_EV_HTTP_PART_BEGIN ev)
+     #;(when (= MG_EV_HTTP_PART_BEGIN ev)
        (println 'begin)
        (println (getstr (ftype-ref http_message (message)
                                    (make-ftype-pointer http_message p)))))
-     (when (= MG_EV_HTTP_REPLY ev)
+     #;(when (= MG_EV_HTTP_REPLY ev)
        (println 'reply))
-     (when (= MG_EV_HTTP_MULTIPART_REQUEST_END ev)
+     #;(when (= MG_EV_HTTP_MULTIPART_REQUEST_END ev)
        (println "end")
        (let ([text "hello world!"])
          (mg_send_head conn 200 (string-length text) "Content-Type: text/plain")
@@ -237,7 +210,14 @@ void mg_send(struct mg_connection *, const void *buf, int len);
 
      (when (= MG_EV_HTTP_REQUEST ev)
        (let ([msgp (make-ftype-pointer http_message p)])
-         (println (getLen (getBody msgp)))
+         (println
+          (utf8->string
+           (char*->u8 (ftype-ref http_message (message p) msgp)
+                      (ftype-ref http_message (message len) msgp))))
+         #;(println (ftype-ref http_message (method p) msgp))
+         #;(println (ftype-ref mg_str
+                             (len)
+                             (ftype-&ref http_message (method len) msgp)))
          #;(println (adfad (getBody msgp)))
          (println "88888")
          #;(println (getstr (getQueryString msgp)))
@@ -259,17 +239,17 @@ void mg_send(struct mg_connection *, const void *buf, int len);
 
 (lock-object server-handler)
 
-(define mgr (make-ftype-pointer mg_mgr (foreign-alloc 1000)))
-(mg_mgr_init (ftype-pointer-address mgr) 0)
+(define mgr (foreign-alloc 1000))
+(mg_mgr_init mgr 0)
 
-(define conn (mg_bind (ftype-pointer-address mgr)
+(define conn (mg_bind mgr
                       "9000"
                       (foreign-callable-entry-point server-handler)
                       0))
 
 (mg_set_protocol_http_websocket conn)
-(mg_mgr_poll (ftype-pointer-address mgr) 1000)
-(mg_mgr_free (ftype-pointer-address mgr))
+(mg_mgr_poll mgr 1000)
+(mg_mgr_free mgr)
 
 
 ;; 创建Web服务器
@@ -338,5 +318,28 @@ void mg_send(struct mg_connection *, const void *buf, int len);
 (file-position ip)
 
 
+(define ww (mg_mk_str "33a"))
+(ftype-ref mg_str (len) ww)
+
+
+(define x (make-ftype-pointer mg_str (foreign-alloc 1000)))
+(define ww-ss (mg_mk_str x "sdfasdf"))
+
+(getstr x)
+(ftype-ref mg_str (len) x)
 
 (foreign-ref 'int aaa-point 0)
+
+(getstr www)
+
+(char*->string (ftype-pointer-address (ftype-ref mg_str (p) x)))
+
+
+(define (char*->string address)
+  (utf8->string
+   (apply bytevector
+          (let iter ([i 0])
+            (let ((bit (foreign-ref 'unsigned-8 address i)))
+              (if (= bit 0)
+                  '()
+                  (cons bit (iter (+ i 1)))))))))
