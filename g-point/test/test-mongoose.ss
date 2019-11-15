@@ -180,8 +180,9 @@ void mg_send(struct mg_connection *, const void *buf, int len);
       (if (= i len)
           bt
           (begin
-            (bytevector-u8-set! bt i
-                                (foreign-ref 'unsigned-8 addr i))
+            (bytevector-u8-set!
+             bt i
+             (foreign-ref 'unsigned-8 addr i))
             (loop (+ i 1)))))))
 
 
@@ -210,10 +211,10 @@ void mg_send(struct mg_connection *, const void *buf, int len);
 
      (when (= MG_EV_HTTP_REQUEST ev)
        (let ([msgp (make-ftype-pointer http_message p)])
-         (println
-          (utf8->string
-           (char*->u8 (ftype-ref http_message (message p) msgp)
-                      (ftype-ref http_message (message len) msgp))))
+         (let ([u8 (char*->u8 (ftype-ref http_message (message p) msgp)
+                              (ftype-ref http_message (message len) msgp))])
+           (set! aaa u8)
+           (println (utf8->string u8)))
          #;(println (ftype-ref http_message (method p) msgp))
          #;(println (ftype-ref mg_str
                              (len)
@@ -343,3 +344,157 @@ void mg_send(struct mg_connection *, const void *buf, int len);
               (if (= bit 0)
                   '()
                   (cons bit (iter (+ i 1)))))))))
+
+
+
+
+
+(define bip-parser
+  (lambda (rt bip)
+    (let ([index (file-position bip)])
+      (let ([rs (rt bip)])
+        (if rs
+            rs
+            (begin (file-position bip index)
+                   #f))))))
+
+(define handle-rt
+  (lambda (rt handle)
+    (lambda (bip)
+      (let [(rs (bip-parser rt bip))]
+        (if rs (handle rs) #f)))))
+
+(define one-char
+  (lambda (bip)
+    (let ([u8 (get-u8 bip)])
+      (if (eof-object? u8) #f (integer->char u8)))))
+
+(define one-u8
+  (lambda (bip)
+    (let ([u8 (get-u8 bip)])
+      (if (eof-object? u8) #f u8))))
+
+(define eof-char
+  (lambda (bip)
+    (let ([u8 (get-u8 bip)])
+      (if (eof-object? u8) u8 #f))))
+
+(define given-char
+  (lambda (c)
+    (handle-rt one-char
+               (lambda (ct)
+                 (if (equal? ct c) ct #f)))))
+
+(define given-u8
+  (lambda (u8)
+    (handle-rt one-u8
+               (lambda (ct)
+                 (if (equal? ct u8) ct #f)))))
+
+(define given-string
+  (lambda (s)
+    (handle-rt (apply match-list
+                      (map
+                       (lambda (e)
+                         (given-u8 e))
+                       (bytevector->s8-list (string->utf8 s))))
+               (lambda (rs)
+                 s))))
+
+(define repeat-until
+  (lambda (repeat-rt until-rt)
+    (lambda (bip)
+      (if (bip-parser until-rt bip)
+          '()
+          (let ([data (bip-parser repeat-rt bip)])
+            (if data
+                (let ([rdata (bip-parser (repeat-until repeat-rt until-rt) bip)])
+                  (if rdata (cons data rdata) #f))
+                #f))))))
+
+(define (match-list . rts)
+  (lambda (bip)
+    (if (null? rts)
+        '()
+        (let ([data (bip-parser (car rts) bip)])
+          (if data
+              (let ([rdata (bip-parser (apply match-list (cdr rts)) bip)])
+                (if rdata (cons data rdata) #f ))
+              #f)))))
+
+(define (match-sequence . rts)
+  (lambda (bip)
+    (cond [(null? rts) #f]
+          [(null? (cdr rts)) (bip-parser (car rts) bip)]
+          [else
+           (if (bip-parser (car rts) bip)
+               (bip-parser (apply match-sequence (cdr rts)) bip)
+               #f)])))
+
+(define string-trim-left
+  (lambda (s)
+    (list->string
+     (let loop ([ls (string->list s)])
+       (cond [(null? ls) '()]
+             [(char-whitespace? (car ls)) (loop (cdr ls))]
+             [else ls])))))
+
+(define string-trim-right
+  (lambda (s)
+    (list->string
+     (reverse
+      (let loop ([ls (reverse (string->list s))])
+        (cond [(null? ls) '()]
+              [(char-whitespace? (car ls)) (loop (cdr ls))]
+              [else ls]))))))
+
+(define string-trim
+  (lambda (s)
+    (string-trim-right
+     (string-trim-left s))))
+
+
+
+(define match-str-until
+  (lambda (until)
+    (handle-rt (repeat-until one-u8 until)
+               (lambda (rs)
+                 (string-trim (utf8->string (u8-list->bytevector rs)))))))
+
+(define str-k-rt
+  (lambda (k until)
+    (handle-rt (match-str-until until)
+               (lambda (rs) (list k rs)))))
+
+(define rnewline
+  (match-sequence (given-char #\return)
+                  (given-char #\newline)))
+
+(define method-rt (str-k-rt 'method (given-char #\space)))
+(define path-rt (str-k-rt 'path (given-char #\space)))
+(define protocol-rt (str-k-rt 'protocol rnewline))
+
+(define boundary-rt
+  (match-list
+   (given-string "boundary")
+   (repeat-until one-u8 rnewline)))
+(define content-type-rt
+  (match-list header-name-rt (match-str-until boundary-rt)))
+
+(define header-name-rt (match-str-until (given-char #\:)))
+(define header-value-rt (match-str-until rnewline))
+(define header-rt
+  (repeat-until (match-list header-name-rt header-value-rt) rnewline))
+
+(define body-u8-rt (repeat-until one-u8 eof-char))
+(define body-str-rt (str-k-rt 'body eof-char))
+
+(define bip (open-bytevector-input-port aaa))
+
+(bip-parser (match-list method-rt
+                        path-rt
+                        protocol-rt
+                        content-type-rt
+                        header-rt
+                        body-str-rt) bip)
+
