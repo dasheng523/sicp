@@ -1,12 +1,37 @@
 (library (lib common)
-  (export string-split string-empty? string-empty? string-join
+  (export string-split string-empty? string-empty? string-join string-trim-left string-trim-right string-trim
           ->string
           partial ->>
           mapcat
-          file-size println)
+          file-size println
+          eval-from-str)
   (import (chezscheme))
 
   ;; string
+
+
+  (define string-trim-left
+    (lambda (s)
+      (list->string
+       (let loop ([ls (string->list s)])
+         (cond [(null? ls) '()]
+               [(char-whitespace? (car ls)) (loop (cdr ls))]
+               [else ls])))))
+
+  (define string-trim-right
+    (lambda (s)
+      (list->string
+       (reverse
+        (let loop ([ls (reverse (string->list s))])
+          (cond [(null? ls) '()]
+                [(char-whitespace? (car ls)) (loop (cdr ls))]
+                [else ls]))))))
+
+  (define string-trim
+    (lambda (s)
+      (string-trim-right
+       (string-trim-left s))))
+
 
   ;; 将 aa-bb-cc 分割为 '(aa bb cc)
   (define (string-split str delim)
@@ -90,5 +115,21 @@
                   (display (car args))
                   (apply println (cdr args)))]))
 
+
+  (define-syntax eval-from-str
+    (lambda (x)
+      (define read-str
+        (lambda (s k)
+          (let ([p (open-input-string s)])
+            (let f ([x (read p)])
+              (if (eof-object? x)
+                  (begin (close-input-port p) '())
+                  (cons (datum->syntax k x)
+                        (f (read p))))))))
+      (syntax-case x ()
+        [(k s)
+         (let ([fn (datum s)])
+           (with-syntax ([(exp ...) (read-str fn #'k)])
+             #'(begin exp ...)))])))
 
 )

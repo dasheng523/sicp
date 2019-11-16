@@ -393,7 +393,7 @@ void mg_send(struct mg_connection *, const void *buf, int len);
 
 (define given-string
   (lambda (s)
-    (handle-rt (apply match-list
+    (handle-rt (apply rt-list
                       (map
                        (lambda (e)
                          (given-u8 e))
@@ -401,63 +401,68 @@ void mg_send(struct mg_connection *, const void *buf, int len);
                (lambda (rs)
                  s))))
 
-(define repeat-until
+(define rt-not
+  (lambda (rt)
+    (lambda (bip)
+      (not (bip-parser rt bip)))))
+
+(define rt-repeat-until
   (lambda (repeat-rt until-rt)
     (lambda (bip)
       (if (bip-parser until-rt bip)
           '()
           (let ([data (bip-parser repeat-rt bip)])
             (if data
-                (let ([rdata (bip-parser (repeat-until repeat-rt until-rt) bip)])
+                (let ([rdata (bip-parser (rt-repeat-until repeat-rt until-rt) bip)])
                   (if rdata (cons data rdata) #f))
                 #f))))))
 
-(define (match-list . rts)
+(define rt-repeat-before
+  (lambda (repeat-rt until-rt)
+    (lambda (bip)
+      (if (bip-parser until-rt bip)
+          #f
+          (let ([data (bip-parser repeat-rt bip)])
+            (if data
+                (let ([rdata (bip-parser (rt-repeat-until repeat-rt until-rt) bip)])
+                  (if rdata
+                      (cons data rdata)
+                      (cons data '())))
+                #f))))))
+
+(define (rt-list . rts)
   (lambda (bip)
     (if (null? rts)
         '()
         (let ([data (bip-parser (car rts) bip)])
           (if data
-              (let ([rdata (bip-parser (apply match-list (cdr rts)) bip)])
+              (let ([rdata (bip-parser (apply rt-list (cdr rts)) bip)])
                 (if rdata (cons data rdata) #f ))
               #f)))))
 
-(define (match-sequence . rts)
+(define (rt-append . rts)
+  (lambda (bip)
+    (if (null? rts)
+        '()
+        (let ([data (bip-parser (car rts) bip)])
+          (if data
+              (let ([rdata (bip-parser (apply rt-append (cdr rts)) bip)])
+                (if rdata (append data rdata) #f ))
+              #f)))))
+
+(define (rt-thunk . rts)
   (lambda (bip)
     (cond [(null? rts) #f]
           [(null? (cdr rts)) (bip-parser (car rts) bip)]
           [else
            (if (bip-parser (car rts) bip)
-               (bip-parser (apply match-sequence (cdr rts)) bip)
+               (bip-parser (apply rt-thunk (cdr rts)) bip)
                #f)])))
-
-(define string-trim-left
-  (lambda (s)
-    (list->string
-     (let loop ([ls (string->list s)])
-       (cond [(null? ls) '()]
-             [(char-whitespace? (car ls)) (loop (cdr ls))]
-             [else ls])))))
-
-(define string-trim-right
-  (lambda (s)
-    (list->string
-     (reverse
-      (let loop ([ls (reverse (string->list s))])
-        (cond [(null? ls) '()]
-              [(char-whitespace? (car ls)) (loop (cdr ls))]
-              [else ls]))))))
-
-(define string-trim
-  (lambda (s)
-    (string-trim-right
-     (string-trim-left s))))
-
 
 
 (define match-str-until
   (lambda (until)
-    (handle-rt (repeat-until one-u8 until)
+    (handle-rt (rt-repeat-until one-u8 until)
                (lambda (rs)
                  (string-trim (utf8->string (u8-list->bytevector rs)))))))
 
@@ -467,34 +472,83 @@ void mg_send(struct mg_connection *, const void *buf, int len);
                (lambda (rs) (list k rs)))))
 
 (define rnewline
-  (match-sequence (given-char #\return)
+  (rt-thunk (given-char #\return)
                   (given-char #\newline)))
 
 (define method-rt (str-k-rt 'method (given-char #\space)))
 (define path-rt (str-k-rt 'path (given-char #\space)))
 (define protocol-rt (str-k-rt 'protocol rnewline))
 
-(define boundary-rt
-  (match-list
-   (given-string "boundary")
-   (repeat-until one-u8 rnewline)))
-(define content-type-rt
-  (match-list header-name-rt (match-str-until boundary-rt)))
-
 (define header-name-rt (match-str-until (given-char #\:)))
 (define header-value-rt (match-str-until rnewline))
 (define header-rt
-  (repeat-until (match-list header-name-rt header-value-rt) rnewline))
+  (rt-repeat-until (rt-list header-name-rt header-value-rt) rnewline))
+(define boundary-rt
+  (handle-rt
+   (rt-thunk
+    (rt-repeat-before (given-char #\-)
+                      (rt-not (given-char #\-)))
+    (match-str-until rnewline))
+   (lambda (rs)
+     (list 'boundary rs))))
 
-(define body-u8-rt (repeat-until one-u8 eof-char))
+(define content-type-rt
+  (rt-list header-name-rt (match-str-until (given-string "boundary="))))
+
+
+(define body-u8-rt (rt-repeat-until one-u8 eof-char))
 (define body-str-rt (str-k-rt 'body eof-char))
+
+
+
+(define form-data
+  (lambda (boundary-num)
+    (define boundary-line
+      (rt-repeat-until (given-char #\-) (given-string boundary-num)))
+    (define attr-rt
+      (handle-rt
+       (rt-list header-name-rt header-value-rt)
+       (lambda (rs)
+         (let ([kname (car rs)]
+               [kval (cadr rs)])
+           (let ([sls (string-split ";" kval)])
+             (cons
+              (cons kname (car sls))
+              (let loop ([ls (cdr sls)])
+                )))))))
+    (define form-item
+      (rt-thunk
+       rnewline
+       (rt-list
+        (rt-repeat-until
+         (rt-list header-name-rt header-value-rt)
+         rnewline)
+        (handle-rt
+         (rt-repeat-until one-u8 boundary-line)
+         (lambda (rs)
+           (list "data" rs))))))
+    (rt-thunk
+     boundary-line
+     (rt-repeat-until form-item (given-string "--")))))
 
 (define bip (open-bytevector-input-port aaa))
 
-(bip-parser (match-list method-rt
-                        path-rt
-                        protocol-rt
-                        content-type-rt
-                        header-rt
-                        body-str-rt) bip)
+(bip-parser (rt-append
+             (rt-list method-rt
+                      path-rt
+                      protocol-rt
+                      content-type-rt
+                      boundary-rt)
+             header-rt
+             (form-data "983216484947391279531332"))
+            (open-bytevector-input-port aaa)
+            #;bip)
+
+(bip-parser (match-str-until (given-char #\space)) bip)
+
+"----------------------------925461089897661364009791\r\nContent-Disposition: form-data; name=\"asd\"\r\n\r\n你好\r\n----------------------------925461089897661364009791\r\nContent-Disposition: form-data; name=\"ffgf\"; filename=\"18763700-8ffe41b3e10f26db.jpg\"\r\nContent-Type: image/jpeg\r\n\r\n����\x0;\x10;JFIF"
+
+
+
+
 
