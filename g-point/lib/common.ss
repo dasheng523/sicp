@@ -1,5 +1,5 @@
 (library (lib common)
-  (export string-split string-empty? string-empty? string-join string-trim-left string-trim-right string-trim
+  (export string-split string-empty? string-empty? string-join string-trim-left string-trim-right string-trim string-start-with string-end-with
           ->string
           partial ->>
           mapcat
@@ -31,6 +31,20 @@
     (lambda (s)
       (string-trim-right
        (string-trim-left s))))
+
+  (define string-start-with
+    (lambda (s start)
+      (equal?
+       (substring s 0 (string-length start))
+       start)))
+
+  (define string-end-with
+    (lambda (s end)
+      (equal?
+       end
+       (let ([len (string-length s)])
+         (substring s (- len (string-length end)) len)))))
+
 
 
   ;; 将 aa-bb-cc 分割为 '(aa bb cc)
@@ -116,20 +130,12 @@
                   (apply println (cdr args)))]))
 
 
-  (define-syntax eval-from-str
-    (lambda (x)
-      (define read-str
-        (lambda (s k)
-          (let ([p (open-input-string s)])
-            (let f ([x (read p)])
-              (if (eof-object? x)
-                  (begin (close-input-port p) '())
-                  (cons (datum->syntax k x)
-                        (f (read p))))))))
-      (syntax-case x ()
-        [(k s)
-         (let ([fn (datum s)])
-           (with-syntax ([(exp ...) (read-str fn #'k)])
-             #'(begin exp ...)))])))
+  (define eval-from-str
+    (lambda (s)
+      (let ([p (open-input-string s)])
+        (let f ([x (read p)] [rs #f])
+          (if (eof-object? x)
+              rs
+              (f (read p) (eval x)))))))
 
 )

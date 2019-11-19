@@ -5,7 +5,8 @@
           machine-lib-suffix
           with-pointer
           c-bin-dire
-          load-lib)
+          load-lib
+          char*->u8 char*->string)
   (import (chezscheme))
 
 
@@ -159,6 +160,28 @@
        (begin
          (define-ffi-from-cform ret fname (param ...))
          ...)]))
+
+
+  (define (char*->string address)
+    (utf8->string
+     (apply bytevector
+            (let iter ([i 0])
+              (let ((bit (foreign-ref 'unsigned-8 address i)))
+                (if (= bit 0)
+                    '()
+                    (cons bit (iter (+ i 1)))))))))
+
+  (define (char*->u8 fp len)
+    (let ([bt (make-bytevector len)]
+          [addr (ftype-pointer-address fp)])
+      (let loop ([i 0])
+        (if (= i len)
+            bt
+            (begin
+              (bytevector-u8-set!
+               bt i
+               (foreign-ref 'unsigned-8 addr i))
+              (loop (+ i 1)))))))
 
 
   )
