@@ -156,7 +156,8 @@
        (string->symbol (string-downcase rs)))))
   (define header-value-rt (match-str-until rnewline))
   (define header-rt
-    (rt-repeat-until (rt-list header-name-rt header-value-rt) rnewline))
+    (mark-k 'headers
+            (rt-repeat-until (rt-list header-name-rt header-value-rt) rnewline)))
 
   (define body-u8-rt (mark-k 'body (rt-repeat-until one-u8 eof-char)))
   (define body-str-rt (str-k-rt 'body eof-char))
@@ -165,7 +166,8 @@
   (define body-form-data
     (lambda (data)
       (define boundary-num
-        (let ([content-type (assoc 'content-type data)])
+        (let ([content-type (assoc 'content-type
+                                   (cadr (assoc 'headers data)))])
           (if content-type
               (car (reverse (string-split (cadr content-type) #\-)))
               (error 'form-data "content-type 为空"))))
@@ -236,7 +238,8 @@
   (define content-type-route
     (lambda (data)
       (define type
-        (let ([content-type (assoc 'content-type data)])
+        (let ([content-type (assoc 'content-type
+                                   (cadr (assoc 'headers data)))])
           (if content-type (cadr content-type) "")))
       (cond [(string-start-with type "application/x-www-form-urlencoded")
              body-str-rt]
@@ -251,7 +254,7 @@
       (rt-list method-rt
                path-rt
                protocol-rt)
-      header-rt)
+      (rt-list header-rt))
      content-type-route))
 
 
