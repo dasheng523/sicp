@@ -31,8 +31,9 @@
                                   (ftype-ref http_message (message len) msgp))]
                    [conni (list (cons 'ip (get-conn-ip conn)))])
                (let ([text (handler conni msg-u8)])   ;; TODO 这里不一定字符串，应该扩展为其他类型。
-                 (mg_send_head conn 200 (string-length text) "Content-Type: text/plain")
-                 (mg_send_string conn text (string-length text)))))))
+                 (mg_send_u8 conn text (bytevector-length text))
+                 #;(mg_send_head conn 200 (string-length text) "Content-Type: text/plain")
+                 #;(mg_send_string conn text (string-length text)))))))
        (void* int void*)
        void)))
 

@@ -3,7 +3,7 @@
           MG_SOCK_STRINGIFY_IP MG_SOCK_STRINGIFY_PORT MG_SOCK_STRINGIFY_REMOTE
           mg_str mg_mgr mg_connection http_message mg_mk_str mg_strfree
           mg_connect_http mg_mgr_init mg_mgr_free mg_mgr_poll mg_bind mg_conn_addr_to_str
-          mg_send_head mg_set_protocol_http_websocket mg_send mg_send_string)
+          mg_send_head mg_set_protocol_http_websocket mg_send mg_send_string mg_send_u8)
   (import (chezscheme)
           (ffi ffi-utils)
           (lib common))
@@ -130,6 +130,11 @@
     (foreign-procedure
      "mg_send"
      (void* void* int)
+     void))
+  (define mg_send_u8
+    (foreign-procedure
+     "mg_send"
+     (void* u8* int)
      void))
 
 
