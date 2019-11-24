@@ -71,7 +71,7 @@
 (define mg_mk_str
   (foreign-procedure "mg_mk_str"
                      (string)
-                     (* mg_str)))
+                     (& mg_str)))
 
 (define mg_strfree
   (foreign-procedure "mg_strfree"
@@ -340,3 +340,17 @@ void mg_send(struct mg_connection *, const void *buf, int len);
 
 
 (foreign-ref 'int aaa-point 0)
+
+
+(define aadd (mg_mk_str "sdfsdf"))
+
+(ftype-ref mg_str (len) aadd)
+
+(getLen aadd)
+(getstr aadd)
+(getLen2 aadd)
+
+(define adff (make-ftype-pointer mg_str (foreign-alloc 1000)))
+(define ddf (mg_mk_str mg_str "1000"))
+(getLen adff)
+(getstr adff)

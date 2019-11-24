@@ -1,3 +1,6 @@
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
 #include "mongoose.h"
 
 const char *getstr(struct mg_str s)
@@ -12,7 +15,7 @@ const char *getstr2(struct mg_str *s)
 
 size_t getLen(struct mg_str s)
 {
-  return s->len;
+  return s.len;
 }
 
 size_t getLen2(struct mg_str *s)
