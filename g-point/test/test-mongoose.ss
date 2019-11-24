@@ -43,30 +43,19 @@
 (define-ftype mg_connection
   (struct))
 
-
 (define-ftype http_message
   (struct
-      [message (* mg_str)]
-    [body (* mg_str)]
-    [method (* mg_str)]
-    [uri (* mg_str)]
-    [proto (* mg_str)]
+      [message mg_str]
+    [body mg_str]
+    [method mg_str]
+    [uri mg_str]
+    [proto mg_str]
     [resp_code int]
-    [resp_status_msg (* mg_str)]
-    [query_string (* mg_str)]
-    [header_names (array 40 (* mg_str))]
-    [header_values (array 40 (* mg_str))]))
+    [resp_status_msg mg_str]
+    [query_string mg_str]
+    [header_names (array 40 mg_str)]
+    [header_values (array 40 mg_str)]))
 
-
-(define getLen
-  (foreign-procedure "getLen"
-                     ((* mg_str))
-                     int))
-
-(define getLen2
-  (foreign-procedure "getLen2"
-                     (void*)
-                     int))
 
 (define mg_mk_str
   (foreign-procedure "mg_mk_str"
@@ -75,36 +64,9 @@
 
 (define mg_strfree
   (foreign-procedure "mg_strfree"
-                     (void*)
+                     ((* mg_str))
                      void))
 
-(define getstr
-  (foreign-procedure "getstr"
-                     ((* mg_str))
-                     string))
-(define getstr2
-  (foreign-procedure "getstr"
-                     ((* mg_str))
-                     u8*))
-(define getstr3
-  (foreign-procedure "getstr"
-                     ((* mg_str))
-                     void*))
-
-(define getMessage
-  (foreign-procedure "getMessage"
-                     ((* http_message))
-                     (* mg_str)))
-
-(define getBody
-  (foreign-procedure "getBody"
-                     ((* http_message))
-                     (* mg_str)))
-
-(define getQueryString
-  (foreign-procedure "getQueryString"
-                     ((* http_message))
-                     (* mg_str)))
 
 ;; void mg_mgr_init(struct mg_mgr *mgr, void *user_data);
 (define mg_mgr_init
@@ -201,56 +163,42 @@ void mg_send(struct mg_connection *, const void *buf, int len);
 
 ;; server
 
-(define adfad
-  (lambda (mgstr)
-    (let ([p (getstr3 mgstr)])
-      (let loop ([len (getLen mgstr)]
-                 [i 0]
-                 [rs '()])
-        (if (= i len)
-            rs
-            (loop len (+ i 1)
-                  (append rs (list (foreign-ref 'char p i)))))))))
+(define (char*->string address)
+  (utf8->string
+   (apply bytevector
+          (let iter ([i 0])
+            (let ((bit (foreign-ref 'unsigned-8 address i)))
+              (if (= bit 0)
+                  '()
+                  (cons bit (iter (+ i 1)))))))))
+
+(define (char*->u8 fp len)
+  (let ([bt (make-bytevector len)]
+        [addr (ftype-pointer-address fp)])
+    (let loop ([i 0])
+      (if (= i len)
+          bt
+          (begin
+            (bytevector-u8-set!
+             bt i
+             (foreign-ref 'unsigned-8 addr i))
+            (loop (+ i 1)))))))
+
 
 
 (define aaa #f)
-(define aaa-point #f)
+
 
 (define server-handler
   (foreign-callable
    (lambda (conn ev p)
-     (when (= MG_EV_HTTP_MULTIPART_REQUEST ev)
-       (println 'request)
-       (println (getstr (ftype-ref http_message (message)
-                                   (make-ftype-pointer http_message p)))))
-     (when (= MG_EV_HTTP_PART_BEGIN ev)
-       (println 'begin)
-       (println (getstr (ftype-ref http_message (message)
-                                   (make-ftype-pointer http_message p)))))
-     (when (= MG_EV_HTTP_REPLY ev)
-       (println 'reply))
-     (when (= MG_EV_HTTP_MULTIPART_REQUEST_END ev)
-       (println "end")
-       (let ([text "hello world!"])
-         (mg_send_head conn 200 (string-length text) "Content-Type: text/plain")
-         (mg_send_string conn text (string-length text))))
-
      (when (= MG_EV_HTTP_REQUEST ev)
        (let ([msgp (make-ftype-pointer http_message p)])
-         (println (getLen (getBody msgp)))
-         #;(println (adfad (getBody msgp)))
+         (let ([u8 (char*->u8 (ftype-ref http_message (message p) msgp)
+                              (ftype-ref http_message (message len) msgp))])
+           (set! aaa u8)
+           #;(println (utf8->string u8)))
          (println "88888")
-         #;(println (getstr (getQueryString msgp)))
-         #;(set! aaa (getstr2 (ftype-ref http_message (message) msgp)))
-         #;(set! aaa-point (getstr3 (ftype-ref http_message (message) msgp)))
-         #;(display 666)
-         #;(newline)
-         #;(let printheader ([i 0])
-           (display (ftype-ref http_message (header_names i) msgp))
-           (newline)
-           (display (ftype-ref http_message (header_values i) msgp))
-           (if (< i 5)
-               (printheader (+ i 1))))
          (let ([text "hello world!"])
            (mg_send_head conn 200 (string-length text) "Content-Type: text/plain")
            (mg_send_string conn text (string-length text))))))
@@ -259,15 +207,16 @@ void mg_send(struct mg_connection *, const void *buf, int len);
 
 (lock-object server-handler)
 
-(define mgr (make-ftype-pointer mg_mgr (foreign-alloc 1000)))
-(mg_mgr_init (ftype-pointer-address mgr) 0)
+(define mgr (foreign-alloc 1000))
+(mg_mgr_init mgr 0)
 
-(define conn (mg_bind (ftype-pointer-address mgr)
+(define conn (mg_bind mgr
                       "9000"
                       (foreign-callable-entry-point server-handler)
                       0))
 
 (mg_set_protocol_http_websocket conn)
+
 (mg_mgr_poll (ftype-pointer-address mgr) 1000)
 (mg_mgr_free (ftype-pointer-address mgr))
 
@@ -354,3 +303,272 @@ void mg_send(struct mg_connection *, const void *buf, int len);
 (define ddf (mg_mk_str mg_str "1000"))
 (getLen adff)
 (getstr adff)
+
+(mg_mgr_poll mgr 1000)
+(mg_mgr_free mgr)
+
+
+
+
+(define bip-parser
+  (lambda (rt bip)
+    (let ([index (file-position bip)])
+      (let ([rs (rt bip)])
+        (if rs
+            rs
+            (begin (file-position bip index)
+                   #f))))))
+
+(define handle-rt
+  (lambda (rt handle)
+    (lambda (bip)
+      (let [(rs (bip-parser rt bip))]
+        (if rs (handle rs) #f)))))
+
+(define one-char
+  (lambda (bip)
+    (let ([u8 (get-u8 bip)])
+      (if (eof-object? u8) #f (integer->char u8)))))
+
+(define one-u8
+  (lambda (bip)
+    (let ([u8 (get-u8 bip)])
+      (if (eof-object? u8) #f u8))))
+
+(define eof-char
+  (lambda (bip)
+    (let ([u8 (get-u8 bip)])
+      (if (eof-object? u8) u8 #f))))
+
+(define given-char
+  (lambda (c)
+    (handle-rt one-char
+               (lambda (ct)
+                 (if (equal? ct c) ct #f)))))
+
+(define given-u8
+  (lambda (u8)
+    (handle-rt one-u8
+               (lambda (ct)
+                 (if (equal? ct u8) ct #f)))))
+
+(define given-string
+  (lambda (s)
+    (handle-rt (apply rt-list
+                      (map
+                       (lambda (e)
+                         (given-u8 e))
+                       (bytevector->s8-list (string->utf8 s))))
+               (lambda (rs) s))))
+
+(define rt-not
+  (lambda (rt)
+    (lambda (bip)
+      (not (bip-parser rt bip)))))
+
+(define (rt-next rt next)
+  (lambda (bip)
+    (let ([data (bip-parser rt bip)])
+      (if data
+          (bip-parser (next data) bip)
+          #f))))
+
+(define (rt-nest rt . handlers)
+  (if (null? handlers)
+      (handle-rt rt values)
+      (apply rt-nest
+             (rt-next rt (car handlers))
+             (cdr handlers))))
+
+(define rt-repeat-until
+  (lambda (repeat-rt until-rt)
+    (lambda (bip)
+      (if (bip-parser until-rt bip)
+          '()
+          (let ([data (bip-parser repeat-rt bip)])
+            (if data
+                (let ([rdata (bip-parser (rt-repeat-until repeat-rt until-rt) bip)])
+                  (if rdata (cons data rdata) #f))
+                #f))))))
+
+(define rt-repeat-before
+  (lambda (repeat-rt until-rt)
+    (lambda (bip)
+      (if (bip-parser until-rt bip)
+          #f
+          (let ([data (bip-parser repeat-rt bip)])
+            (if data
+                (let ([rdata (bip-parser (rt-repeat-until repeat-rt until-rt) bip)])
+                  (if rdata
+                      (cons data rdata)
+                      (cons data '())))
+                #f))))))
+
+(define (rt-fold fn rts)
+  (lambda (bip)
+    (let rt-left ([init '()] [rts rts])
+      (if (null? rts)
+          init
+          (let ([data (bip-parser (car rts) bip)])
+            (if data
+                (rt-left (fn init data)
+                         (cdr rts))
+                #f))))))
+
+
+(define (rt-list . rts)
+  (rt-fold (lambda (rs item)
+             (append rs (list item)))
+           rts))
+
+(define (rt-append . rts)
+  (rt-fold append rts))
+
+(define (rt-begin . rts)
+  (rt-fold
+   (lambda (rs item)
+     item)
+   rts))
+
+
+(define u8-list->string
+  (lambda (u8)
+    (string-trim (utf8->string (u8-list->bytevector u8)))))
+
+(define match-str-until
+  (lambda (until)
+    (handle-rt (rt-repeat-until one-u8 until) u8-list->string)))
+
+(define mark-k
+  (lambda (k rt)
+    (handle-rt rt
+               (lambda (rs) (list k rs)))))
+
+(define str-k-rt
+  (lambda (k until)
+    (mark-k k (match-str-until until))))
+
+(define rnewline
+  (rt-begin (given-char #\return)
+                  (given-char #\newline)))
+
+(define method-rt (str-k-rt 'method (given-char #\space)))
+(define path-rt (str-k-rt 'path (given-char #\space)))
+(define protocol-rt (str-k-rt 'protocol rnewline))
+
+(define header-name-rt
+  (handle-rt
+   (match-str-until (given-char #\:))
+   (lambda (rs)
+     (string->symbol (string-downcase rs)))))
+(define header-value-rt (match-str-until rnewline))
+(define header-rt
+  (rt-repeat-until (rt-list header-name-rt header-value-rt) rnewline))
+
+(define body-u8-rt (mark-k 'body (rt-repeat-until one-u8 eof-char)))
+(define body-str-rt (str-k-rt 'body eof-char))
+
+
+(define body-form-data
+  (lambda (data)
+    (define boundary-num
+      (let ([content-type (assoc 'content-type data)])
+        (if content-type
+            (car (reverse (string-split (cadr content-type) #\-)))
+            (error 'form-data "content-type 为空"))))
+    (define boundary-line
+      (rt-repeat-until (given-char #\-)
+                       (given-string boundary-num)))
+
+    (define parse-attr
+      (lambda (rs)
+        (let ([kname (car rs)]
+              [kval (cadr rs)])
+          (let ([sls (string-split kval #\;)])
+            (cons
+             (list kname (car sls))
+             (if (cdr sls)
+                 (let loop ([ls (cdr sls)])
+                   (map
+                    (lambda (lstr)
+                      (let ([kvs (string-split lstr #\=)])
+                        (if (= (length kvs) 2)
+                            (list (string->symbol (string-trim (car kvs)))
+                                  (eval-from-str (cadr kvs))))))
+                    ls))
+                 '()))))))
+
+
+    (define form-item-attr
+      (handle-rt
+       (rt-repeat-until
+        (handle-rt
+         (rt-list header-name-rt header-value-rt)
+         parse-attr)
+        rnewline)
+       (lambda (rs)
+         (fold-right (lambda (x ls) (append ls x)) '() rs))))
+
+    (define form-item-body
+      (lambda (req)
+        (handle-rt
+         (rt-repeat-until
+          one-u8
+          (rt-begin rnewline boundary-line))
+         (lambda (rs)
+           (list
+            (cadr (assoc 'name req))
+            (let ([item-type (assoc 'content-type req)])
+              (if item-type
+                  (open-bytevector-input-port
+                   (u8-list->bytevector rs))
+                  (u8-list->string rs))))))))
+
+    (define form-item
+      (rt-begin
+       rnewline
+       (rt-nest
+        form-item-attr
+        form-item-body)))
+
+    (rt-begin
+     boundary-line
+     (handle-rt
+      (mark-k 'body
+              (rt-repeat-until form-item (given-string "--")))
+      (lambda (rs)
+        (append data (list rs)))))))
+
+
+(define content-type-route
+  (lambda (data)
+    (define type
+      (let ([content-type (assoc 'content-type data)])
+        (if content-type (cadr content-type) "")))
+    (cond [(string-start-with type "application/x-www-form-urlencoded")
+           body-str-rt]
+          [(string-start-with type "multipart/form-data")
+           (body-form-data data)]
+          [else
+           body-u8-rt])))
+
+(bip-parser (rt-nest
+             (rt-append
+              (rt-list method-rt
+                       path-rt
+                       protocol-rt)
+              header-rt)
+             content-type-route)
+            (open-bytevector-input-port aaa))
+
+;; 如何整理这些代码？
+;; 方便调用和测试。
+
+
+(define bip (open-bytevector-input-port aaa))
+(bip-parser (match-str-until (given-char #\space)) bip)
+
+"----------------------------925461089897661364009791\r\nContent-Disposition: form-data; name=\"asd\"\r\n\r\n你好\r\n----------------------------925461089897661364009791\r\nContent-Disposition: form-data; name=\"ffgf\"; filename=\"18763700-8ffe41b3e10f26db.jpg\"\r\nContent-Type: image/jpeg\r\n\r\n����\x0;\x10;JFIF"
+
+
+

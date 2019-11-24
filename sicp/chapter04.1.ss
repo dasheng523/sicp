@@ -420,6 +420,15 @@
         (list i j k)))))
 ;; 主要是因为k没有上界，k没办法失败，而后返回重试。所以k必须有上界限制。
 
+(define (distinct? ls)
+  (cond [(null? ls) #t]
+        [(null? (cdr ls)) #t]
+        [else (and (let loop ([item (car ls)]
+                              [left (cdr ls)])
+                     (cond [(null? left) #t]
+                           [(eq? item (car left)) #f]
+                           [else (loop item (cdr left))]))
+                   (distinct? (cdr ls)))]))
 
 
 (define (multiple-dwelling)
@@ -441,6 +450,8 @@
           (list 'fletcher fletcher)
           (list 'miller miller)
           (list 'smith smith))))
+
+(multiple-dwelling)
 
 
 ;; 练习 4.43
@@ -621,3 +632,7 @@
           (cc a)))))))
 
 
+(define (parse input)
+  (let ([line (read-line input)])
+    (if (not (end-line? line))
+        (handle line))))
