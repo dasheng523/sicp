@@ -40,6 +40,30 @@
 
 
 
+
+
+;; message 从服务器请求来的，已经转换好了的。
+
+;; 这求值器对exp求值，环境是message
+;; (request-eval 'exp message)
+
+;; 'exp 可以是 '(get-headers) 获取headers数据
+;; 还可以是 '(with-headers data) 返回另一个message
+
+
+;; 这是对message的解释，对于程序而言，message只是作为环境
+;; (app-eval 'exp message)
+;; 读取请求参数，并对它们进行加法操作
+(request-eval '(get-params) message)
+
+(cont (get-params)
+      (lambda (params)
+        (map + params)))
+
+
+
+
+
 ;; 接下来要处理返回值问题了。
 ;; 主要是两个函数 response 和 extend-response
 (response
@@ -69,6 +93,11 @@
 (webdata
  (cookie 'name "8888" 60)
  (body "asdfasdf"))
+
+
+
+
+
 
 
 
