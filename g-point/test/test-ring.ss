@@ -42,23 +42,74 @@
 
 
 
-;; message 从服务器请求来的，已经转换好了的。
-
-;; 这求值器对exp求值，环境是message
-;; (request-eval 'exp message)
-
-;; 'exp 可以是 '(get-headers) 获取headers数据
-;; 还可以是 '(with-headers data) 返回另一个message
 
 
-;; 这是对message的解释，对于程序而言，message只是作为环境
-;; (app-eval 'exp message)
-;; 读取请求参数，并对它们进行加法操作
-(request-eval '(get-params) message)
 
-(cont (get-params)
-      (lambda (params)
-        (map + params)))
+;; 不管request,response,还是web-eval或者其他，求值器的样子都是一样的。所以将它合并成一个求值器。
+;; 哪天需要别的求值器再说吧。
+;; TODO 可能有某些策略，可以将解释器区分开来。
+(define (app-eval webdata expr)
+  (expr webdata))
+
+;; 上层代码
+(app-eval webdata main-app)
+
+;; TODO 这里似乎没必要用rt-nest
+(define main-app
+  (rt-nest body-convert
+           handlers))
+
+
+(define handlers
+  (-> (create-routes-handler routes)
+      middleware1
+      middleware2))
+
+(define middleware1
+  (lambda (handler)
+    (lambda (webdata)
+      (let ([wd (app-eval webdata (with-header 'mw1 "middleware1"))])
+        (handler wd)))))
+
+(define middleware2
+  (lambda (handler)
+    (lambda (webdata)
+      (let* ([result (handler webdata)]
+             [cookies (app-eval result (without-cookies 'name))]
+             [name (app-eval result (get-cookie 'name))]
+             [new-cookies (extend-cookies cookies (string-append name "-test"))])
+        (app-eval result (with-cookies new-cookies))))))
+
+;; TODO 默认界面和404怎么弄？
+;; TODO 异常处理怎么弄？
+(define create-routes-handler
+  (lambda (routes-group)
+    (lambda (webdata)
+      (let ([path (app-eval webdata (get-path))]
+            [method (app-eval webdata (get-method))])
+        (let find-route ([routes (routes-list routes-group)])
+          (if (null? routes)
+              (routes-handler routes))
+          (let ([pattern (route-pattern (car routes))])
+            (if (path-match path method pattern)
+                (route-handler (car routes))
+                (find-route (cdr routes)))))))))
+
+(define routes
+  (make-routes-group
+   (list
+    (make-route 'GET "/home" home-handler)
+    (make-route 'POST "/login" login-handler))
+   page404-handler))
+
+(define make-routes-group
+  (lambda (routes default-handler)
+    (hash-table
+     (cons))))
+
+
+
+
 
 
 
