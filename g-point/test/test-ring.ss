@@ -69,31 +69,60 @@
   (lambda (handler)
     (lambda (webdata)
       (let ([wd (app-eval webdata (with-header 'mw1 "middleware1"))])
-        (handler wd)))))
+        (app-eval wd handler)))))
 
 (define middleware2
   (lambda (handler)
     (lambda (webdata)
-      (let* ([result (handler webdata)]
+      (let* ([result (app-eval webdata handler)]
              [cookies (app-eval result (without-cookies 'name))]
              [name (app-eval result (get-cookie 'name))]
              [new-cookies (extend-cookies cookies (string-append name "-test"))])
         (app-eval result (with-cookies new-cookies))))))
 
-;; TODO 默认界面和404怎么弄？
-;; TODO 异常处理怎么弄？
-(define create-routes-handler
-  (lambda (routes-group)
+(define exception-middleware
+  (lambda (handler)
     (lambda (webdata)
-      (let ([path (app-eval webdata (get-path))]
-            [method (app-eval webdata (get-method))])
-        (let find-route ([routes (routes-list routes-group)])
-          (if (null? routes)
-              (routes-handler routes))
-          (let ([pattern (route-pattern (car routes))])
-            (if (path-match path method pattern)
-                (route-handler (car routes))
-                (find-route (cdr routes)))))))))
+      (guard (x [else (begin
+                        (log-error x)
+                        (exception-handler webdata))])
+        (app-eval webdata handler)))))
+
+;; TODO log-error exception-handler
+
+
+(define (rt-apply callback . rts)
+  (lambda (webdata)
+    (apply callback
+           (let eval-rts ([rts rts])
+             (if (null? rts)
+                 '()
+                 (cons (app-eval webdata (car rts))
+                       (eval-rts (cdr rts))))))))
+
+(define-syntax rt-let
+  (syntax-rules ()
+    [(_ () b1 b2 ...)
+     (rt-apply (lambda () b1 b2 ...))]
+    [(_ ([i1 e1] [i2 e2] ...) b1 b2 ...)
+     (rt-apply
+      (lambda (i1 i2 ...) b1 b2 ...)
+      e1 e1 ...)]))
+
+
+(define create-routes-handler
+  (lambda (route-group)
+    (rt-let ([path (get-path)]
+             [method (get-method)])
+            (let find-handler ([routes (routes-group-list routes-group)])
+              (if (null? routes)
+                  (routes-group-default routes-group)
+                  (let ([route (car routes)])
+                    (if (path-match? path method route)
+                        (route-handler route)
+                        (find-handler (cdr routes)))))))))
+
+
 
 (define routes
   (make-routes-group
@@ -102,10 +131,54 @@
     (make-route 'POST "/login" login-handler))
    page404-handler))
 
+;; route
+(define make-route
+  (lambda (method pattern handler)
+    (make-map
+     'method method
+     'pattern pattern
+     'handler handler)))
+
+(define route-method
+  (lambda (route)
+    (map-get route 'method)))
+
+(define route-pattern
+  (lambda (route)
+    (map-get route 'pattern)))
+
+(define route-handler
+  (lambda (route)
+    (map-get route 'handler)))
+
+;; routes-group
 (define make-routes-group
-  (lambda (routes default-handler)
-    (hash-table
-     (cons))))
+  (lambda (routes default)
+    (make-map
+     'list routes
+     'default default)))
+
+(define routes-group-list
+  (lambda (group)
+    (map-get group 'list)))
+
+(define routes-group-default
+  (lambda (group)
+    (map-get group 'default)))
+
+
+
+
+(define (make-map . kvs)
+  (let ([ht (make-hash-table)])
+    (let loop ([kvs kvs])
+      (if (null? kvs)
+          ht
+          (begin (hashtable-set! ht (car item) (cadr item))
+                 (loop (cddr kvs)))))))
+
+(define (map-get m key)
+  (hashtable-ref m key #f))
 
 
 
