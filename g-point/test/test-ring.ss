@@ -45,52 +45,6 @@
 
 
 
-;; 不管request,response,还是web-eval或者其他，求值器的样子都是一样的。所以将它合并成一个求值器。
-;; 哪天需要别的求值器再说吧。
-;; TODO 可能有某些策略，可以将解释器区分开来。
-(define (app-eval webdata expr)
-  (expr webdata))
-
-;; 上层代码
-(app-eval webdata main-app)
-
-;; TODO 这里似乎没必要用rt-nest
-(define main-app
-  (rt-nest body-convert
-           handlers))
-
-
-(define handlers
-  (-> (create-routes-handler routes)
-      middleware1
-      middleware2))
-
-(define middleware1
-  (lambda (handler)
-    (lambda (webdata)
-      (let ([wd (app-eval webdata (with-header 'mw1 "middleware1"))])
-        (app-eval wd handler)))))
-
-(define middleware2
-  (lambda (handler)
-    (lambda (webdata)
-      (let* ([result (app-eval webdata handler)]
-             [cookies (app-eval result (without-cookies 'name))]
-             [name (app-eval result (get-cookie 'name))]
-             [new-cookies (extend-cookies cookies (string-append name "-test"))])
-        (app-eval result (with-cookies new-cookies))))))
-
-(define exception-middleware
-  (lambda (handler)
-    (lambda (webdata)
-      (guard (x [else (begin
-                        (log-error x)
-                        (exception-handler webdata))])
-        (app-eval webdata handler)))))
-
-;; TODO log-error exception-handler
-
-
 (define (rt-apply callback . rts)
   (lambda (webdata)
     (apply callback
@@ -100,36 +54,89 @@
                  (cons (app-eval webdata (car rts))
                        (eval-rts (cdr rts))))))))
 
-(define-syntax rt-let
+(define-syntax rt-with-eval
   (syntax-rules ()
     [(_ () b1 b2 ...)
      (rt-apply (lambda () b1 b2 ...))]
     [(_ ([i1 e1] [i2 e2] ...) b1 b2 ...)
      (rt-apply
       (lambda (i1 i2 ...) b1 b2 ...)
-      e1 e1 ...)]))
+      e1 e2 ...)]))
+
+(define (rt-eval . rts)
+  (apply rt-apply
+         (lambda (n ... last) last)
+         rts))
+
+
+
+;; 不管request,response,还是web-eval或者其他，求值器的样子都是一样的。所以将它合并成一个求值器。
+;; webdata的表示就是用List吧
+;; TODO 可能有某些策略，可以将解释器区分开来。
+;; TODO body-convert找个机会抽出来。
+;; TODO 让实例跑起来
+;; TODO 整理所有未实现的表达式，实现它。
+
+(define (app-eval webdata expr)
+  (expr webdata))
+
+;; 上层代码
+(app-eval webdata main-app)
+
+(define main-app
+  handlers)
+
+
+(define handlers
+  (-> (create-routes-handler routes)
+      middleware1
+      middleware2
+      exception-middleware))
+
+(define middleware1
+  (lambda (handler)
+    (rt-transfer
+     (with-header 'mw1 "mw1")
+     (with-header 'mw2 "mw2")
+     handler)))
+
+(define middleware2
+  (lambda (handler)
+    (rt-transfer
+     handler
+     (without-cookie 'mw1)
+     (with-cookie 'name
+                  (string-append (rt-eval (get-cookie 'name)) "-test")))))
+
+(define exception-middleware
+  (lambda (handler)
+    (lambda (webdata)
+      (guard (x [else (begin
+                        (log-error x)
+                        (exception-handler webdata))])
+        (app-eval webdata handler)))))
+
+(define log-error
+  (lambda (x)
+    (println x)))
+
+(define exception-handler
+  (with-body "error"))
 
 
 (define create-routes-handler
   (lambda (route-group)
-    (rt-let ([path (get-path)]
-             [method (get-method)])
-            (let find-handler ([routes (routes-group-list routes-group)])
-              (if (null? routes)
-                  (routes-group-default routes-group)
-                  (let ([route (car routes)])
-                    (if (path-match? path method route)
-                        (route-handler route)
-                        (find-handler (cdr routes)))))))))
+    (rt-with-eval
+     ([path (get-path)]
+      [method (get-method)])
+     (let find-handler ([routes (routes-group-list routes-group)])
+       (if (null? routes)
+           (routes-group-default routes-group)
+           (let ([route (car routes)])
+             (if (path-match? path method route)
+                 (route-handler route)
+                 (find-handler (cdr routes)))))))))
 
-
-
-(define routes
-  (make-routes-group
-   (list
-    (make-route 'GET "/home" home-handler)
-    (make-route 'POST "/login" login-handler))
-   page404-handler))
 
 ;; route
 (define make-route
@@ -166,7 +173,15 @@
   (lambda (group)
     (map-get group 'default)))
 
+(define routes
+  (make-routes-group
+   (list
+    (make-route 'GET "/home" (response (with-body "home")))
+    (make-route 'POST "/login" (response (with-body "login"))))
+   page404-handler))
 
+(define (response . exprs)
+  (apply rt-eval the-empty-webdata exprs))
 
 
 (define (make-map . kvs)
