@@ -44,6 +44,26 @@
 
 
 
+;; common 
+(define (make-map . kvs)
+  (let ([ht (make-hash-table)])
+    (let loop ([kvs kvs])
+      (if (null? kvs)
+          ht
+          (begin (hashtable-set! ht (car kvs) (cadr kvs))
+                 (loop (cddr kvs)))))))
+
+(define (map-get m key)
+  (hashtable-ref m key #f))
+
+(define (map-set m key val)
+  (hashtable-set! m key val))
+
+
+
+
+(define (app-eval webdata expr)
+  (expr webdata))
 
 (define (rt-apply callback . rts)
   (lambda (webdata)
@@ -63,46 +83,85 @@
       (lambda (i1 i2 ...) b1 b2 ...)
       e1 e2 ...)]))
 
+(rt-with-eval
+ ([path (get-path)]
+  [method (get-method)])
+ 1)
+
 (define (rt-eval . rts)
   (apply rt-apply
          (lambda (n ... last) last)
          rts))
 
+(define (rt-> . rts)
+  (lambda (webdata)
+    (if (null? rts)
+        webdata
+        (app-eval
+         (app-eval webdata (car rts))
+         (apply (cdr rts))))))
+
+
+;; webdata 使用map来表示
+(define create-webdata make-map)
+
+(define webdata-get map-get)
+
+(define webdata-set map-set)
+
+
+(define the-empty-webdata
+  values)
 
 
 ;; 不管request,response,还是web-eval或者其他，求值器的样子都是一样的。所以将它合并成一个求值器。
-;; webdata的表示就是用List吧
 ;; TODO 可能有某些策略，可以将解释器区分开来。
 ;; TODO body-convert找个机会抽出来。
 ;; TODO 让实例跑起来
 ;; TODO 整理所有未实现的表达式，实现它。
 
-(define (app-eval webdata expr)
-  (expr webdata))
+(define with-params
+  (lambda (k v)
+    (lambda (webdata)
+      (webdata-set webdata k v))))
 
-;; 上层代码
-(app-eval webdata main-app)
+(define get-params
+  (lambda (k)
+    (lambda (webdata)
+      (webdata-get webdata k))))
 
-(define main-app
-  handlers)
+(define (response . exprs)
+  (apply rt-eval the-empty-webdata exprs))
 
+(define (with-body body)
+  (with-params 'body body))
 
-(define handlers
-  (-> (create-routes-handler routes)
-      middleware1
-      middleware2
-      exception-middleware))
+(define (with-header header-k header-v)
+  (with-params header-k header-v))
+
+(define get-method
+  (get-params 'method))
+
+(define (get-header k)
+  (get-params k))
+
+(define (get-body)
+  (get-params 'body))
+
+(define (get-path)
+  (get-params 'path))
+
 
 (define middleware1
   (lambda (handler)
-    (rt-transfer
+    (rt->
      (with-header 'mw1 "mw1")
      (with-header 'mw2 "mw2")
      handler)))
 
 (define middleware2
   (lambda (handler)
-    (rt-transfer
+    (rt->
      handler
      (without-cookie 'mw1)
      (with-cookie 'name
@@ -121,7 +180,8 @@
     (println x)))
 
 (define exception-handler
-  (with-body "error"))
+  (response
+   (with-body "error")))
 
 
 (define create-routes-handler
@@ -173,6 +233,10 @@
   (lambda (group)
     (map-get group 'default)))
 
+(define page404-handler
+  (response
+   (with-body "404")))
+
 (define routes
   (make-routes-group
    (list
@@ -180,20 +244,25 @@
     (make-route 'POST "/login" (response (with-body "login"))))
    page404-handler))
 
-(define (response . exprs)
-  (apply rt-eval the-empty-webdata exprs))
+
+(define handlers
+  (->> (create-routes-handler routes)
+       middleware1
+       middleware2
+       exception-middleware
+       ))
 
 
-(define (make-map . kvs)
-  (let ([ht (make-hash-table)])
-    (let loop ([kvs kvs])
-      (if (null? kvs)
-          ht
-          (begin (hashtable-set! ht (car item) (cadr item))
-                 (loop (cddr kvs)))))))
 
-(define (map-get m key)
-  (hashtable-ref m key #f))
+
+;; 上层代码
+(define main-app handlers)
+(app-eval webdata main-app)
+
+
+
+
+
 
 
 
