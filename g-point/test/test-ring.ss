@@ -17,7 +17,7 @@
   (lambda (conn msg-u8)
     (set! aaa msg-u8)
     (set! conn-info conn)
-    (send-response
+    #;(send-response
      (response
       (header 'server "unknow")
       (header 'content-type "text/plain")
@@ -30,6 +30,16 @@
 
 (define bdata (bip-parser main-exp (open-bytevector-input-port aaa)))
 
+(define webdata (create-webdata-from-message bdata))
+
+;; 上层代码
+(define main-app handlers)
+
+(app-eval webdata (get-headers))
+
+(app-eval webdata main-app)
+
+
 #;(send-response
  (response
   (header 'server "unknow")
@@ -41,17 +51,14 @@
 
 
 
-
-
-
-;; common 
+;; common
 (define (make-map . kvs)
   (let ([ht (make-hash-table)])
-    (let loop ([kvs kvs])
-      (if (null? kvs)
-          ht
-          (begin (hashtable-set! ht (car kvs) (cadr kvs))
-                 (loop (cddr kvs)))))))
+    (for-each
+     (lambda (item)
+       (hashtable-set! ht (car item) (cadr item)))
+     kvs)
+    ht))
 
 (define (map-get m key)
   (hashtable-ref m key #f))
@@ -68,11 +75,9 @@
 (define (rt-apply callback . rts)
   (lambda (webdata)
     (apply callback
-           (let eval-rts ([rts rts])
-             (if (null? rts)
-                 '()
-                 (cons (app-eval webdata (car rts))
-                       (eval-rts (cdr rts))))))))
+           (map (lambda (rt)
+                  (app-eval webdata rt))
+                rts))))
 
 (define-syntax rt-with-eval
   (syntax-rules ()
@@ -83,10 +88,9 @@
       (lambda (i1 i2 ...) b1 b2 ...)
       e1 e2 ...)]))
 
-(rt-with-eval
- ([path (get-path)]
-  [method (get-method)])
- 1)
+
+
+
 
 (define (rt-eval . rts)
   (apply rt-apply
@@ -99,17 +103,51 @@
         webdata
         (app-eval
          (app-eval webdata (car rts))
-         (apply (cdr rts))))))
+         (apply rt-> (cdr rts))))))
 
 
 ;; webdata 使用map来表示
-(define create-webdata make-map)
+(define create-webdata
+  (lambda (data)
+    (apply make-map data)))
+
+(define (make-empty-webdata)
+  (make-eq-hashtable))
+
+(define webdata-copy
+  (lambda (webdata)
+    (hashtable-copy webdata #t)))
 
 (define webdata-get map-get)
 
 (define webdata-set map-set)
 
+;; 将从服务器传过来的消息，转换为一个webdata
+;; @param msg 服务传递过来的消息格式
+;; @return 创建一个webdata
+(define (create-webdata-from-message msg)
+  (define (parse-cookies cookie-str)
+    (map
+     (lambda (item)
+       (let ([kv (string-split item #\=)])
+         (list (string->symbol (string-trim (car kv)))
+               (string-trim (cadr kv)))))
+     (string-split cookie-str #\;)))
 
+  (let ([wd (create-webdata msg)])
+    (webdata-set wd 'cookies
+                 (let ([cookies (webdata-get wd 'cookie)])
+                   (if cookies
+                       (begin
+                         (map-del wd 'cookie)
+                         (make-map (parse-cookies cookies)))
+                       (make-empty-webdata))))
+    (webdata-set wd 'headers
+                 (make-map (webdata-get wd 'headers)))
+    wd))
+
+
+;; 空的webdata表达式，求值它什么都不做。
 (define the-empty-webdata
   values)
 
@@ -123,7 +161,9 @@
 (define with-params
   (lambda (k v)
     (lambda (webdata)
-      (webdata-set webdata k v))))
+      (let ([copy (webdata-copy webdata)])
+        (webdata-set copy k v)
+        copy))))
 
 (define get-params
   (lambda (k)
@@ -131,25 +171,71 @@
       (webdata-get webdata k))))
 
 (define (response . exprs)
-  (apply rt-eval the-empty-webdata exprs))
+  (apply rt-> the-empty-webdata exprs))
+
+;; 感觉有些不妥，可能是调用形式有坑吧，表达式跟普通函数分不清。
+(define (with-header header-k header-v)
+  (rt-with-eval
+   ([headers (get-params 'headers)])
+   (map-set headers header-k header-v)
+   (with-headers headers)))
+
+(define (without-header k)
+  (rt-with-eval
+   ([headers (get-headers)])
+   (map-del headers k)
+   (with-headers headers)))
+
+(define (with-headers headers)
+  (with-params 'headers headers))
+
+(define (get-headers)
+  (get-params 'headers))
+
+(define (get-header k)
+  (rt-with-eval
+   ([headers (get-headers)])
+   (map-get headers k)))
+
+(define (with-cookie cookie-k cookie-v)
+  (rt-with-eval
+   ([cookies (get-params 'cookies)])
+   (map-set cookies cookie-k cookie-v)
+   (with-cookies cookies)))
+
+(define (without-cookie k)
+  (rt-with-eval
+   ([cookies (get-cookies)])
+   (map-del cookies k)
+   (with-cookies cookies)))
+
+(define (with-cookies cookies)
+  (with-params 'cookies cookies))
+
+(define (get-cookies)
+  (get-params 'cookies))
+
+;; TODO cookie应该抽离成对象比较好吧。
+(define (get-cookie k)
+  (rt-with-eval
+   ([cookies (get-cookies)])
+   (map-get cookies k)))
 
 (define (with-body body)
   (with-params 'body body))
-
-(define (with-header header-k header-v)
-  (with-params header-k header-v))
-
-(define get-method
-  (get-params 'method))
-
-(define (get-header k)
-  (get-params k))
 
 (define (get-body)
   (get-params 'body))
 
 (define (get-path)
   (get-params 'path))
+
+(define (get-method)
+  (get-params 'method))
+
+
+
+
 
 
 (define middleware1
@@ -164,8 +250,10 @@
     (rt->
      handler
      (without-cookie 'mw1)
-     (with-cookie 'name
-                  (string-append (rt-eval (get-cookie 'name)) "-test")))))
+     (rt-with-eval
+      ([name (get-cookie 'name)])
+      (with-cookie 'name
+                   (string-append name "-test"))))))
 
 (define exception-middleware
   (lambda (handler)
@@ -185,7 +273,7 @@
 
 
 (define create-routes-handler
-  (lambda (route-group)
+  (lambda (routes-group)
     (rt-with-eval
      ([path (get-path)]
       [method (get-method)])
@@ -197,14 +285,18 @@
                  (route-handler route)
                  (find-handler (cdr routes)))))))))
 
+(define (path-match? path method route)
+  (and (eq? method (route-method route))
+       (eq? path (route-pattern route))))
+
 
 ;; route
 (define make-route
   (lambda (method pattern handler)
     (make-map
-     'method method
-     'pattern pattern
-     'handler handler)))
+     (list 'method method)
+     (list 'pattern pattern)
+     (list 'handler handler))))
 
 (define route-method
   (lambda (route)
@@ -222,8 +314,8 @@
 (define make-routes-group
   (lambda (routes default)
     (make-map
-     'list routes
-     'default default)))
+     (list 'list routes)
+     (list 'default default))))
 
 (define routes-group-list
   (lambda (group)
@@ -249,16 +341,21 @@
   (->> (create-routes-handler routes)
        middleware1
        middleware2
-       exception-middleware
+       ;;exception-middleware
        ))
 
 
+(app-eval webdata (create-routes-handler routes))
 
+;; TODO 求值得到hashtable，不能表示任何的类型，感觉有些奇怪。
 
-;; 上层代码
-(define main-app handlers)
-(app-eval webdata main-app)
-
+;; TODO 这里求值得到一个函数，对这个函数求值才能得到正确结果。
+(app-eval
+ webdata
+ (rt-with-eval
+  ([path (get-path)]
+   [method (get-method)])
+  page404-handler))
 
 
 
