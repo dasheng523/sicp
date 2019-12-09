@@ -66,18 +66,47 @@
 (define (map-set m key val)
   (hashtable-set! m key val))
 
+(define (map-del m key)
+  (hashtable-delete! m key))
 
 
+
+(define make-webexpr
+  (lambda (handler)
+    (cons 'expr handler)))
+
+(define webexpr?
+  (lambda (expr)
+    (and (pair? expr)
+         (eq? 'expr (car expr)))))
+
+(define webexpr-handler
+  (lambda (expr)
+    (cdr expr)))
+
+
+
+
+
+(define finish-eval
+  (lambda (expr)
+    (make-webexpr
+     (lambda (webdata)
+       (let loop ([rs expr])
+         (if (webexpr? rs)
+             (loop (app-eval webdata rs))
+             rs))))))
 
 (define (app-eval webdata expr)
-  (expr webdata))
+  ((webexpr-handler expr) webdata))
 
 (define (rt-apply callback . rts)
-  (lambda (webdata)
-    (apply callback
-           (map (lambda (rt)
-                  (app-eval webdata rt))
-                rts))))
+  (make-webexpr
+   (lambda (webdata)
+     (apply callback
+            (map (lambda (rt)
+                   (app-eval webdata rt))
+                 rts)))))
 
 (define-syntax rt-with-eval
   (syntax-rules ()
@@ -98,12 +127,18 @@
          rts))
 
 (define (rt-> . rts)
-  (lambda (webdata)
-    (if (null? rts)
-        webdata
-        (app-eval
-         (app-eval webdata (car rts))
-         (apply rt-> (cdr rts))))))
+  (make-webexpr
+   (lambda (webdata)
+     (if (null? rts)
+         webdata
+         (app-eval
+          (app-eval webdata (car rts))
+          (apply rt-> (cdr rts)))))))
+
+(define (final-rt-> . rts)
+  (apply rt->
+         (map finish-eval rts)))
+
 
 
 ;; webdata 使用map来表示
@@ -149,7 +184,7 @@
 
 ;; 空的webdata表达式，求值它什么都不做。
 (define the-empty-webdata
-  values)
+  (make-webexpr values))
 
 
 ;; 不管request,response,还是web-eval或者其他，求值器的样子都是一样的。所以将它合并成一个求值器。
@@ -160,18 +195,22 @@
 
 (define with-params
   (lambda (k v)
-    (lambda (webdata)
-      (let ([copy (webdata-copy webdata)])
-        (webdata-set copy k v)
-        copy))))
+    (make-webexpr
+     (lambda (webdata)
+       (let ([copy (webdata-copy webdata)])
+         (webdata-set copy k v)
+         copy)))))
 
 (define get-params
   (lambda (k)
-    (lambda (webdata)
-      (webdata-get webdata k))))
+    (make-webexpr
+     (lambda (webdata)
+       (webdata-get webdata k)))))
 
 (define (response . exprs)
-  (apply rt-> the-empty-webdata exprs))
+  (apply final-rt-> the-empty-webdata exprs))
+
+
 
 ;; 感觉有些不妥，可能是调用形式有坑吧，表达式跟普通函数分不清。
 (define (with-header header-k header-v)
@@ -240,28 +279,30 @@
 
 (define middleware1
   (lambda (handler)
-    (rt->
+    (final-rt->
      (with-header 'mw1 "mw1")
      (with-header 'mw2 "mw2")
      handler)))
 
 (define middleware2
   (lambda (handler)
-    (rt->
+    (final-rt->
      handler
      (without-cookie 'mw1)
      (rt-with-eval
       ([name (get-cookie 'name)])
       (with-cookie 'name
-                   (string-append name "-test"))))))
+                   (string-append (if name name "")
+                                  "-test"))))))
 
 (define exception-middleware
   (lambda (handler)
-    (lambda (webdata)
-      (guard (x [else (begin
-                        (log-error x)
-                        (exception-handler webdata))])
-        (app-eval webdata handler)))))
+    (make-webexpr
+     (lambda (webdata)
+       (guard (x [else (begin
+                         (log-error x)
+                         (exception-handler webdata))])
+         (app-eval webdata handler))))))
 
 (define log-error
   (lambda (x)
@@ -345,17 +386,23 @@
        ))
 
 
-(app-eval webdata (create-routes-handler routes))
-
 ;; TODO 求值得到hashtable，不能表示任何的类型，感觉有些奇怪。
 
-;; TODO 这里求值得到一个函数，对这个函数求值才能得到正确结果。
+
 (app-eval
  webdata
- (rt-with-eval
-  ([path (get-path)]
-   [method (get-method)])
-  page404-handler))
+ (finish-eval
+  (rt-with-eval
+   ([path (get-path)]
+    [method (get-method)])
+   page404-handler)))
+
+
+(app-eval
+ webdata
+ handlers)
+
+
 
 
 
