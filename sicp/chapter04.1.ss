@@ -636,3 +636,57 @@
   (let ([line (read-line input)])
     (if (not (end-line? line))
         (handle line))))
+
+
+
+
+
+(define (one-distinct a b c d)
+  (cond [(and (= b c d) (not (= a b))) 1]
+        [(and (= a c d) (not (= a b))) 2]
+        [(and (= a b d) (not (= c b))) 3]
+        [(and (= a b c) (not (= d b))) 4]
+        [else (amb)]))
+
+(define (require-answer q v)
+  (if (not (= q v)) (amb)))
+
+(define (run)
+  (define q1 (amb 1 2 3 4))
+  (define q2 (amb 1 2 3 4))
+  (define q3 (amb 1 2 3 4))
+  (define q4 (amb 1 2 3 4))
+  (define q5 (amb 1 2 3 4))
+  (define q6 (amb 1 2 3 4))
+  (define q7 (amb 1 2 3 4))
+  (define q8 (amb 1 2 3 4))
+  (define q9 (amb 1 2 3 4))
+  (define q10 (amb 1 2 3 4))
+
+  (amb (and (= q2 1) (= q5 3))
+       (and (= q2 2) (= q5 4))
+       (and (= q2 3) (= q5 1))
+       (and (= q2 4) (= q5 2)))
+
+  (require-answer q3 (one-distinct q3 q6 q2 q4))
+
+  (amb (and (= q4 1) (= q1 q5))
+       (and (= q4 2) (= q2 q7))
+       (and (= q4 3) (= q1 q9))
+       (and (= q4 4) (= q6 q10)))
+
+  (amb (and (= q5 1) (= q8 q5))
+       (and (= q5 2) (= q4 q5))
+       (and (= q5 3) (= q9 q5))
+       (and (= q5 4) (= q7 q5)))
+
+  (amb (and (= q6 1) (= q8 q2 q4))
+       (and (= q6 2) (= q8 q1 q6))
+       (and (= q6 3) (= q8 q3 q10))
+       (and (= q6 4) (= q8 q5 q9)))
+
+  (list q1 q2 q3 q4 q5 q6 q7 q8 q9 q10))
+
+
+(run)
+
