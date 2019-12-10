@@ -615,6 +615,12 @@
   (let ([acc (take-money init-account 20)])
     (left-money acc)))
 
+(define (parse input)
+  (let ([line (read-line input)])
+    (if (not (end-line? line))
+        (handle line))))
+
+
 
 (define fail #f)
 (define-syntax amb
@@ -622,7 +628,7 @@
     ((_) (fail))
     ((_ a) a)
     ((_ a b ...)
-     (let ((fail0 fail))
+     (let ([fail0 fail])
        (call/cc
         (lambda (cc)
           (set! fail
@@ -632,61 +638,123 @@
           (cc a)))))))
 
 
-(define (parse input)
-  (let ([line (read-line input)])
-    (if (not (end-line? line))
-        (handle line))))
-
-
-
-
-
-(define (one-distinct a b c d)
-  (cond [(and (= b c d) (not (= a b))) 1]
-        [(and (= a c d) (not (= a b))) 2]
-        [(and (= a b d) (not (= c b))) 3]
-        [(and (= a b c) (not (= d b))) 4]
-        [else (amb)]))
-
-(define (require-answer q v)
-  (if (not (= q v)) (amb)))
+(define (need-true expr)
+  (if (not expr) (amb)))
 
 (define (run)
-  (define q1 (amb 1 2 3 4))
-  (define q2 (amb 1 2 3 4))
-  (define q3 (amb 1 2 3 4))
-  (define q4 (amb 1 2 3 4))
-  (define q5 (amb 1 2 3 4))
-  (define q6 (amb 1 2 3 4))
-  (define q7 (amb 1 2 3 4))
-  (define q8 (amb 1 2 3 4))
-  (define q9 (amb 1 2 3 4))
-  (define q10 (amb 1 2 3 4))
+  (let ([q1 (amb 1 2 3 4)]
+        [q2 (amb 1 2 3 4)]
+        [q3 (amb 1 2 3 4)]
+        [q4 (amb 1 2 3 4)]
+        [q5 (amb 1 2 3 4)]
+        [q6 (amb 1 2 3 4)]
+        [q7 (amb 1 2 3 4)]
+        [q8 (amb 1 2 3 4)]
+        [q9 (amb 1 2 3 4)]
+        [q10 (amb 1 2 3 4)])
 
-  (amb (and (= q2 1) (= q5 3))
-       (and (= q2 2) (= q5 4))
-       (and (= q2 3) (= q5 1))
-       (and (= q2 4) (= q5 2)))
+    (need-true (or (and (= q2 1) (= q5 3))
+                   (and (= q2 2) (= q5 4))
+                   (and (= q2 3) (= q5 1))
+                   (and (= q2 4) (= q5 2))))
 
-  (require-answer q3 (one-distinct q3 q6 q2 q4))
+    (need-true (or (and (= q3 1) (and (= q6 q2 q4) (not (= q3 q6))))
+                   (and (= q3 2) (and (= q3 q2 q4) (not (= q3 q6))))
+                   (and (= q3 3) (and (= q3 q6 q4) (not (= q3 q2))))
+                   (and (= q3 4) (and (= q3 q2 q6) (not (= q3 q4))))))
 
-  (amb (and (= q4 1) (= q1 q5))
-       (and (= q4 2) (= q2 q7))
-       (and (= q4 3) (= q1 q9))
-       (and (= q4 4) (= q6 q10)))
+    (need-true (or (and (= q4 1) (= q1 q5))
+                   (and (= q4 2) (= q2 q7))
+                   (and (= q4 3) (= q1 q9))
+                   (and (= q4 4) (= q6 q10))))
 
-  (amb (and (= q5 1) (= q8 q5))
-       (and (= q5 2) (= q4 q5))
-       (and (= q5 3) (= q9 q5))
-       (and (= q5 4) (= q7 q5)))
+    (need-true (or (and (= q5 1) (= q8 q5))
+                   (and (= q5 2) (= q4 q5))
+                   (and (= q5 3) (= q9 q5))
+                   (and (= q5 4) (= q7 q5))))
 
-  (amb (and (= q6 1) (= q8 q2 q4))
-       (and (= q6 2) (= q8 q1 q6))
-       (and (= q6 3) (= q8 q3 q10))
-       (and (= q6 4) (= q8 q5 q9)))
+    (need-true (or (and (= q6 1) (= q8 q2 q4))
+                   (and (= q6 2) (= q8 q1 q6))
+                   (and (= q6 3) (= q8 q3 q10))
+                   (and (= q6 4) (= q8 q5 q9))))
 
-  (list q1 q2 q3 q4 q5 q6 q7 q8 q9 q10))
+    (let ([mino (min-option (list q1 q2 q3 q4 q5 q6 q7 q8 q9 q10))])
+      (need-true (or (and (= q7 1) (= 3 mino))
+                     (and (= q7 2) (= 2 mino))
+                     (and (= q7 3) (= 1 mino))
+                     (and (= q7 4) (= 4 mino)))))
+
+    (need-true (or (and (= q8 1) (> (abs (- q1 q7)) 1))
+                   (and (= q8 2) (> (abs (- q1 q5)) 1))
+                   (and (= q8 3) (> (abs (- q1 q2)) 1))
+                   (and (= q8 4) (> (abs (- q1 q10)) 1))))
+
+    (need-true
+     (or (and (= q9 1) (or (and (= q1 q6) (not (= q6 q5)))
+                           (and (not (= q1 q6)) (= q6 q5))))
+         (and (= q9 2) (or (and (= q1 q6) (not (= q10 q5)))
+                           (and (not (= q1 q6)) (= q10 q5))))
+         (and (= q9 3) (or (and (= q1 q6) (not (= q2 q5)))
+                           (and (not (= q1 q6)) (= q2 q5))))
+         (and (= q9 4) (or (and (= q1 q6) (not (= q9 q5)))
+                           (and (not (= q1 q6)) (= q9 q5))))))
+
+    (let* ([ls (list q1 q2 q3 q4 q5 q6 q7 q8 q9 q10)]
+           [min (min-length ls)]
+           [max (max-length ls)])
+      (need-true (or (and (= q10 1) (= 3 (- max min)))
+                     (and (= q10 2) (= 2 (- max min)))
+                     (and (= q10 3) (= 4 (- max min)))
+                     (and (= q10 4) (= 1 (- max min))))))
+
+    (list q1 q2 q3 q4 q5 q6 q7 q8 q9 q10)))
 
 
 (run)
+
+
+
+(define (partition-value data)
+  (define (find-value n)
+    (let-values ([(p rest)
+                  (partition (lambda (x) (= n x)) data)])
+      p))
+  (list
+   (cons 1 (find-value 1))
+   (cons 2 (find-value 2))
+   (cons 3 (find-value 3))
+   (cons 4 (find-value 4))))
+
+(define (edge-list op ls)
+  (cond [(null? ls) '()]
+        [(null? (cdr ls)) (car ls)]
+        [else (let ([rmax (edge-list op (cdr ls))])
+                (if (op (length (car ls))
+                        (length rmax))
+                    (car ls)
+                    rmax))]))
+
+(define (min-option ls)
+  (car (edge-list
+        <
+        (partition-value ls))))
+
+(define (max-option ls)
+  (car (edge-list
+        >
+        (partition-value ls))))
+
+(define (min-length ls)
+  (length (edge-list
+           <
+           (partition-value ls))))
+
+(define (max-length ls)
+  (length (edge-list
+           >
+           (partition-value ls))))
+
+(- (min-length '(2 3 1 3 1 3 4 1 2 1))
+   (max-length '(2 3 1 3 1 3 4 1 2 1)))
+
 
