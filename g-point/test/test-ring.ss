@@ -389,16 +389,6 @@
 ;; TODO 求值得到hashtable，不能表示任何的类型，感觉有些奇怪。
 
 
-(app-eval
- webdata
- (finish-eval
-  (rt-with-eval
-   ([path (get-path)]
-    [method (get-method)])
-   page404-handler)))
-
-
-(app-eval webdata handlers)
 
 
 
@@ -406,43 +396,6 @@
 
 
 
-
-
-
-
-
-
-
-
-;; 接下来要处理返回值问题了。
-;; 主要是两个函数 response 和 extend-response
-(response
- (code 200)
- (cookie 'name "8888" 60)
- (header 'Content-Encoding "gzip")
- (body "hello!!!"))
-
-(extends-response
- data
- (set-header 'content-type "text/html; charset=utf-8"))
-
-
-;; 这是用来执行response的。
-(send-response response)
-
-;; 解析utf8字节，生成request
-(parse-request u8)
-
-;; request和response都是webdata的扩展
-(get-cookies data)
-(get-cookie data key)
-(set-cookie data key value expires)
-(get-body data)
-(set-body data value)
-
-(webdata
- (cookie 'name "8888" 60)
- (body "asdfasdf"))
 
 
 

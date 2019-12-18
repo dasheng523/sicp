@@ -754,7 +754,5 @@
            >
            (partition-value ls))))
 
-(- (min-length '(2 3 1 3 1 3 4 1 2 1))
-   (max-length '(2 3 1 3 1 3 4 1 2 1)))
 
 
