@@ -23,19 +23,19 @@
   ;; 通过 dataitem 列表构建 datapack
   (define make-datapack-dataitemlist
     (lambda (dataitem-list)
-      (let ([list->table
-             (lambda (ls)
-               (let ([ht (make-eq-hashtable)])
-                 (for-each
-                  (lambda (item)
-                    (hashtable-set!
-                     ht
-                     (dataitem-key item)
-                     (dataitem-val item)))
-                  ls)
-                 ht))])
-        (make-datapack (list->table dataitem-list)))))
+      (make-datapack (list->table dataitem-list))))
 
+  (define list->table
+    (lambda (ls)
+      (let ([ht (make-eq-hashtable)])
+        (for-each
+         (lambda (item)
+           (hashtable-set!
+            ht
+            (dataitem-key item)
+            (dataitem-val item)))
+         ls)
+        ht)))
 
 
   ;;;; cookies TODO  不用这个实现了
@@ -58,34 +58,72 @@
     (lambda ()
       (make-cookies (make-eq-hashtable))))
 
+  ;;;; setcookies
+  (define make-setcookie
+    (case-lambda
+      [(name value expires domain path secure? http-only?)
+       (lambda (x)
+         (record-case
+          x
+          [(get-name) () name]
+          [(get-value) () value]
+          [(get-expires) () expires]
+          [(get-domain) () domain]
+          [(get-path) () path]
+          [(get-secure?) () secure?]
+          [(get-http-only?) () http-only?]))]
+      [(name value)
+       (make-setcookie name value #f #f #f #f #f)]
+      [(name value expires)
+       (make-setcookie name value expires #f #f #f #f)]))
+
+
+  (define make-setcookies
+    (lambda (ls)
+      (lambda (x)
+        (record-case
+         x
+         [(append) (k v)
+          (make-setcookies (append ls (list (make-setcookie k v))))]))))
+
+  (define make-empty-setcookies
+    (lambda ()
+      (make-setcookies '())))
+
 
   ;;;; headers
   ;;;; 实现是make-datapack TODO
-
   (define make-headers
     (lambda (ht)
       (let* ([parent (make-datapack ht)]
              [cookies-raw (hashtable-ref ht 'cookie #f)])
         (let create ([cookies (if cookies-raw
                                   (make-cookies-from-string cookies-raw)
-                                  (make-empty-cookies))])
+                                  (make-empty-cookies))]
+                     [setcookies (make-empty-setcookies)])
           (lambda (x)
             (record-case
              x
              [(get-cookies) () cookies]
-             [(get-cookie) (k) (cookies `(get-item ,k))]
-             [(with-cookie) (k v) (create (cookies `(with-item ,k ,v)))]
-             [(set-cookie) (k v)]
-             [else (parent x)])))
-        )))
+             [(get-cookie) (k)
+              (cookies `(get-item ,k))]
+             [(with-cookie) (k v)
+              (create (cookies `(with-item ,k ,v))
+                      setcookies)]
+             [(setcookie) (k v)
+              (create cookies
+                      (setcookies `(append ,k ,v)))]
+             [else (parent x)]))))))
+
 
   (define make-headers-from-array
     (lambda (data)
-      (make-datapack-dataitemlist
-       (map
-        (lambda (item)
-          (make-dataitem (car item) (cadr item)))
-        data))))
+      (make-headers
+       (list->table
+        (map
+         (lambda (item)
+           (make-dataitem (car item) (cadr item)))
+         data)))))
 
   (define make-empty-headers
     (lambda ()
@@ -135,7 +173,7 @@
            [(get-cookie) (k) (headers `(get-cookie ,k))]
            [(with-cookie) (k v)
             (make-request method path protocol body
-                          (headers (with-cookie ,k ,v))
+                          (headers `(with-cookie ,k ,v))
                           attributes)]
            [(with-header) (k v)
             (create (webdata (list 'with-header k v)))]
@@ -170,15 +208,24 @@
         (lambda (x)
           (record-case
            x
-           [(get-code) () code]
+           [(get-code) ()
+            code]
+           [(with-code) (code)
+            (make-response code body headers attributes)]
+
+
            [(set-cookie) (k v)
             (create (webdata `(set-cookie ,k ,v)))]
-           [(with-header) (k v)
-            (create (webdata (list 'with-header k v)))]
-           [(with-attribute) (k v)
-            (create (webdata (list 'with-attribute k v)))]
-           [else (webdata x)])))))
 
+           [(with-header) (k v)
+            (create (webdata x))]
+           [(with-attribute) (k v)
+            (create (webdata x))]
+           [(with-body) (body)
+            (create (webdata x))]
+
+
+           [else (webdata x)])))))
 
 
 
@@ -201,6 +248,17 @@
        (body
         (("asd" "你好")
          ("aaaaaa" "6655好里等等"))))))
+
+
+  (define header (make-headers-from-array
+                  '((user-agent "PostmanRuntime/7.20.1") (accept "*/*") (cache-control "no-cache")
+                    (postman-token "37d487e5-c75e-455f-bc59-db4f9dfb0eaa")
+                    (host "127.0.0.1:9000")
+                    (content-type
+                     "multipart/form-data; boundary=--------------------------654164899475887629483156")
+                    (accept-encoding "gzip, deflate") (content-length "18686")
+                    (connection "keep-alive"))))
+
 
   (define resp (make-response 200 "ok"
                               (make-headers (make-eq-hashtable))
