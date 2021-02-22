@@ -49,6 +49,8 @@
                                     (foreign-callable-entry-point x))
          (curl-easy-setopt/string curl CURLOPT_URL url)
          (curl-easy-setopt/long curl CURLOPT_FOLLOWLOCATION 1)
+         (curl-easy-setopt/long curl CURLOPT_SSL_VERIFYPEER 0)
+         (curl-easy-setopt/long curl CURLOPT_SSL_VERIFYHOST 0)
          (curl-easy-perform curl)
          (unlock-object x)
          result))))

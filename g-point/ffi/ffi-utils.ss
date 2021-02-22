@@ -105,11 +105,16 @@
       (case (machine-type)
         [(i3le ti3le a6le ta6le) ".so.6"]
         [(i3osx ti3osx a6osx ta6osx) ".dylib"]
+        [(i3nt ti3nt a6nt ta6nt) ".dll"]
         [else ".so"])))
 
-  (define (load-lib name)
-    (load-shared-object (string-append c-bin-dire "/" name (machine-lib-suffix))))
 
+  (define (load-lib name)
+    (let* ([suffix (machine-lib-suffix)]
+          [path (string-append c-bin-dire "/" name suffix)])
+      (if (file-exists? path)
+          (load-shared-object path)
+          (load-shared-object (string-append name suffix)))))
 
 
   (define-syntax define-ffi-from-cform

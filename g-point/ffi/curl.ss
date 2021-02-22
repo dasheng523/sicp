@@ -139,10 +139,9 @@
 
   (define _init
     (begin
-      (case (machine-type)
-        [(i3le ti3le a6le ta6le) (load-shared-object "libcurl.so.6")]
-        [(i3osx ti3osx a6osx ta6osx) (load-shared-object "libcurl.dylib")]
-        [else (load-shared-object "libcurl.so")])))
+      (display "aaa")
+      (load-lib "libcurl"))
+    )
 
 
   (define-ftype CURL (struct))
