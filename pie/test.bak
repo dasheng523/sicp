@@ -1,0 +1,9 @@
+#lang pie
+
+'apple
+
+(the (Pair Atom Atom)
+  (cons 'apple 'pear))
+
+(car (the (Pair Atom Atom)
+  (cons 'apple 'pear)))

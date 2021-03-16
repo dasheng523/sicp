@@ -1,6 +1,7 @@
 (library (lib mysql)
-  (import (ffi mysql))
-  (export conn-db close-db escape-string query-db query-db-1 execute-db)
+  (export conn-db close-db query-db query-db-1 execute-db)
+  (import (chezscheme)
+          (ffi mysql))
 
 
 
@@ -22,7 +23,7 @@
   (define (conn-db host user passwd db port)
     (let ([conn (mysql-init 0)])
       (if (null? conn)
-          (raise "数据库异常")
+          (raise "数据库连接异常")
           (with-finish
            (lambda (rs) (if (ftype-pointer-null? rs)
                             (error 'conn-db (mysql-error conn))))
@@ -59,7 +60,7 @@
 
 
   ;; 转码,用于避免SQL注入
-  (define (escape-string s)
+  #;(define (escape-string s)
     (with-finish
      (lambda (x) (foreign-free (ftype-pointer-address x)))
      ([charpoint (make-ftype-pointer char (foreign-alloc 1))])
