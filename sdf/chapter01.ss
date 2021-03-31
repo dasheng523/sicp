@@ -1,3 +1,5 @@
+(load "tools.ss")
+
 (define (compose f g)
   (lambda args (f (apply g args))))
 
@@ -151,8 +153,6 @@
 
 
 
-
-
 (define (r:dot) ".")
 (define (r:bol) "∧")
 (define (r:eol) "$")
@@ -182,11 +182,8 @@
                           (cdr exprs))))
       (r:seq)))
 
-(r:alt (r:quote "foo") (r:quote "bar") (r:quote "baz"))
+;;(r:alt (r:quote "foo") (r:quote "bar") (r:quote "baz"))
 
-(define append-map
-  (lambda (f . args)
-    (apply append (apply map f args))))
 
 
 (define (r:repeat min max expr)
@@ -219,6 +216,7 @@
 ;;(r:char-not-from "aaa")
 
 
+;; 方括号
 (define (bracket string procedure)
   (list->string (append '(#\[)
                         (procedure (string->list string)) '(#\]))))
@@ -234,26 +232,6 @@
           (optional #\-)))
 (define chars-needing-quoting-in-brackets '(#\] #\∧ #\-))
 
-
-(define (contain? f subc c)
-  (let loop ([lst subc])
-    (cond [(null? lst) #t]
-          [(memp (lambda (x) (f x (car lst))) c) (loop (cdr lst))]
-          [else #f])))
-
-;;(contain? eqv? '(c b) '(a b c d))
-;;(contain? eqv? '(c 1) '(a b c d))
-
-(define (lset= f . llst)
-  (let ([n (length llst)])
-    (cond [(= n 0) #t]
-          [(= n 1) #t]
-          [(= n 2) (and (contain? f (cadr llst) (car llst))
-                        (contain? f (car llst) (cadr llst)))]
-          [else (and (lset= f (list (car llst) (cadr llst)))
-                     (apply lset= f (cddr llst)))])))
-
-;; (lset= eqv? '(c a b) '(b c a) '(a b c))
 
 
 (define (write-bourne-shell-grep-command expr filename)
@@ -281,43 +259,194 @@
 
 
 
-;; Exercise 2.6: Adding * and + to regular expressions
-(define (r:* expr)
-  (r:repeat 0 #f expr))
-
-(define (r:+ expr)
-  (r:repeat 1 #f expr))
-
-#;(write-bourne-shell-grep-command
- (r:seq
-  (r:* (r:quote "@types/"))
-  (r:quote "lodash"))
- "package.json")
 
 
 
+;;;; 2.3 Wrappers
+;; 临时心得
+;; 当需要扩展的时候，我一般在某个函数上多加一个参数，然后修改其内部实现。是的这样看来会非常快。但这会隐藏程序背后的逻辑。
+;; 应该换成什么样的思维呢？我想要的目的是把背后的逻辑抽离出来。但一般来说背后的逻辑不会非常清晰。应怎么做呢？
+;; 背后的逻辑就是不变的逻辑。就拿这个程序，不管单位如何变化，不变的是gas-law-volume的逻辑。
+;; 找到背后的逻辑，也就是找到不变的逻辑。
+;; 找到之后，就封装变化的逻辑了。变化的逻辑就可借助于领域语言。
+
+;; 关注点分离就是将某段逻辑分成不同的部分。一般来说就是把主逻辑和从逻辑分开来。
+(define (gas-law-volume pressure temperature amount)
+  (/ (* amount gas-constant temperature) pressure))
+
+(define gas-constant 8.3144621)
+
+(define (sphere-radius volume)
+  (expt (/ volume (* 4/3 pi)) 1/3))
+
+(define pi (* 4 (atan 1 1)))
+
+(define (make-unit-conversion f1 f2)
+  (assert (> (get-arity f1) 0))
+  (assert (> (get-arity f2) 0))
+  (restrict-arity (case-lambda
+                    [() (cons f1 f2)]
+                    [args (apply f1 args)])
+                  (get-arity f1)))
+
+(define (unit:* u1 u2)
+  (make-unit-conversion
+   (compose u2 u1)
+   (compose (unit:invert u1) (unit:invert u2))))
+
+(define (units:* . units)
+  (let ([n (length units)])
+    (cond
+     [(= n 1) (car units)]
+     [(= n 2) (unit:* (car units) (cadr units))]
+     [(> n 2) (apply units:* (unit:* (car units) (cadr units))
+                     (cddr units))]
+     [else (error "入参数量错误")])))
 
 
-;;; Exercise 2.7: A bug, one bad joke, two tweaks, and a revelation
-Louis 的建议根本跑不动，会死循环的。
-Alyssa 的建议是遍历多个，可是当max特别大，min特别小的时候，生成出来的正则表达式将会非常庞大。
-Ben 的建议明显非常简洁，生成的正则表达式也非常小，性能应该也是最好的。
+(define (unit:invert u)
+  (let ([fs (u)])
+    (make-unit-conversion
+     (cdr fs)
+     (car fs))))
+
+(define (unit:/ u1 u2)
+  (unit:* u1 (unit:invert u2)))
+
+(define (unit:expt u n)
+  (assert (exact-nonnegative-integer? n))
+  (if (= n 1)
+      u
+      (unit:* u (unit:expt u (- n 1)))))
 
 
-(define (r:repeat min max expr)
-  (string-append expr "\\{" (number->string min) "," (or (and max (number->string max)) "")  "\\}"))
+;; 华氏度转摄氏度
+#;(define fahrenheit-to-celsius
+  (make-unit-conversion (lambda (f) (* 5/9 (- f 32)))
+                        (lambda (c) (+ (* c 9/5) 32))))
 
-(write-bourne-shell-grep-command
- (r:repeat 1 3 (r:quote "1"))
- "package.json")
-(write-bourne-shell-grep-command
- (r:repeat 1 #f (r:quote "1"))
- "package.json")
+#;(fahrenheit-to-celsius 32)
+#;((unit:invert fahrenheit-to-celsius) 20)
+#;((unit:expt (unit:invert fahrenheit-to-celsius) 2) 20)
+
+;; 摄氏度转绝对温度
+#;(define celsius-to-kelvin
+  (let ((zero-celsius 273.15)) ;kelvins
+    (make-unit-conversion
+     (lambda (c) (+ c zero-celsius))
+     (lambda (k) (- k zero-celsius)))))
+
+#;((unit:* fahrenheit-to-celsius celsius-to-kelvin) 80)
 
 
-(write-bourne-shell-grep-command
- (r:seq (r:quote "\"") (r:repeat 1 #f (r:dot)) (r:quote "\"") (r:quote ":"))
- "package.json")
+
+(define make-specialized-gas-law-volume
+  (unit-specializer gas-law-volume
+                    '(expt meter 3) ; output (volume)
+                    '(/ newton (expt meter 2)) ; pressure
+                    'kelvin ; temperature
+                    'mole)) ; amount
+
+
+(define conventional-gas-law-volume
+  (make-specialized-gas-law-volume
+   '(expt inch 3) ; output (volume)
+   '(/ pound (expt inch 2)) ; pressure
+   'fahrenheit ; temperature
+   'mole)) ; amount
+
+
+;; (sphere-radius (conventional-gas-law-volume 14.7 68 1))
+
+
+(define (unit-specializer procedure implicit-output-unit . implicit-input-units)
+  (define (specializer specific-output-unit . specific-input-units)
+    (let ((output-converter (make-converter implicit-output-unit specific-output-unit))
+          (input-converters (map make-converter specific-input-units implicit-input-units)))
+      (define (specialized-procedure . arguments)
+        (output-converter
+         (apply procedure
+                (map (lambda (converter argument) (converter argument))
+                     input-converters arguments))))
+      specialized-procedure))
+  specializer)
+
+
+;; 创建一个单位节点
+(define (create-unit-node u)
+  (list u))
+
+;; 在一个节点上挂载一个叶子
+(define (unit-node-mount node leaf conversion)
+  (append node (list (cons leaf conversion))))
+
+;; 获取节点所有叶子和对应转换器
+(define (unit-node-leafs node)
+  (cdr node))
+
+
+
+(define unit-node-table (make-eqv-hashtable))
+
+(define (register-unit-conversion u1 u2 conversion)
+  (define (register u1 u2 conversion)
+    (let ([node (or (hashtable-ref unit-node-table u1 #f)
+                    (create-unit-node u1))])
+      (hashtable-set! unit-node-table
+                      u1
+                      (unit-node-mount u1 u2 conversion))))
+  (register u1 u2 conversion)
+  (register u2 u1 (unit:invert conversion)))
+
+;; TODO
+(define (make-converter u1 u2)
+  (cond
+   [(and (simple-unit? u1) (simple-unit? u2))
+    (let ([conversions (find-unit-path-conversion u1 u2)])
+      (if conversions
+          (apply units:* conversions)
+          (error (list "找不到单位换算路径" u1 u2))))]
+   [(and (compound-unit? u1) (compound-unit? u2))
+    ]))
+
+
+;; 华氏度和摄氏度的关系
+(register-unit-conversion 'fahrenheit 'celsius
+                          (make-unit-conversion (lambda (f) (* 5/9 (- f 32)))
+                                                (lambda (c) (+ (* c 9/5) 32))))
+
+;; 摄氏度与绝对度的关系
+(register-unit-conversion 'celsius 'kelvin
+                          (let ((zero-celsius 273.15)) ;kelvins
+                            (make-unit-conversion
+                             (lambda (c) (+ c zero-celsius))
+                             (lambda (k) (- k zero-celsius)))))
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -586,3 +715,191 @@ Ben 的建议明显非常简洁，生成的正则表达式也非常小，性能�
   (lambda (x) (values 'b x))
   (lambda () (list 'a)))
  )
+
+
+
+
+
+
+
+;; Exercise 2.6: Adding * and + to regular expressions
+(define (r:* expr)
+  (r:repeat 0 #f expr))
+
+(define (r:+ expr)
+  (r:repeat 1 #f expr))
+
+#;(write-bourne-shell-grep-command
+(r:seq
+(r:* (r:quote "@types/"))
+(r:quote "lodash"))
+"package.json")
+
+
+
+
+
+;;; Exercise 2.7: A bug, one bad joke, two tweaks, and a revelation
+Louis 的建议根本跑不动，会死循环的。
+Alyssa 的建议是遍历多个，可是当max特别大，min特别小的时候，生成出来的正则表达式将会非常庞大。
+Ben 的建议明显非常简洁，生成的正则表达式也非常小，性能应该也是最好的。
+
+
+(define (r:repeat min max expr)
+  (string-append expr "\\{" (number->string min) "," (or (and max (number->string max)) "")  "\\}"))
+
+(write-bourne-shell-grep-command
+ (r:repeat 1 3 (r:quote "1"))
+ "package.json")
+(write-bourne-shell-grep-command
+ (r:repeat 1 #f (r:quote "1"))
+ "package.json")
+
+
+(write-bourne-shell-grep-command
+ (r:seq (r:quote "\"") (r:repeat 1 #f (r:dot)) (r:quote "\"") (r:quote ":"))
+ "package.json")
+
+
+
+
+
+;;; Exercise 2.8: Too much nesting
+;; 表达式也有两种，一种是需要加括号的，另一种不需要加括号。
+
+;; 无括号表达式
+(define (non-parenthese-expr str)
+  (list 'non-parenthese-expr str))
+
+(define (non-parenthese-expr? expr)
+  (eq? 'non-parenthese-expr (car expr)))
+
+;; 带括号表达式
+(define (with-parenthese-expr str)
+  (list 'with-parenthese-expr str))
+
+(define (with-parenthese-expr? expr)
+  (eq? 'with-parenthese-expr (car expr)))
+
+;; 获取表达式中的正则
+(define (get-regular expr)
+  (cadr expr))
+
+;; 将表达式翻译成正则
+(define (translate-regular expr)
+  (cond
+   [(non-parenthese-expr? expr) (get-regular expr)]
+   [(with-parenthese-expr? expr) (string-append "\\(" (get-regular expr) "\\)")]
+   [else (raise "不支持该表达式")]))
+
+;; 右括号的直接返回，没括号的包上括号
+(define (sure-parenthese expr)
+  (cond
+   [(non-parenthese-expr? expr) (with-parenthese-expr (translate-regular expr))]
+   [(with-parenthese-expr? expr) expr]
+   [else (raise "不支持该表达式")]))
+
+
+(define chars-needing-quoting '(#\. #\[ #\\ #\∧ #\$ #\*))
+
+(define (r:dot) (non-parenthese-expr "."))
+(define (r:bol) (non-parenthese-expr "∧"))
+(define (r:eol) (non-parenthese-expr "$"))
+
+(define (r:seq . exprs)
+  (non-parenthese-expr
+   (apply string-append (map translate-regular exprs))))
+
+(define (r:quote string)
+  (non-parenthese-expr
+   (list->string
+    (append-map (lambda (char)
+                  (if (memv char chars-needing-quoting)
+                      (list #\\ char)
+                      (list char)))
+                (string->list string)))))
+;;(r:quote "a.a")
+
+
+(define (r:alt . exprs)
+  (if (pair? exprs)
+      (with-parenthese-expr
+       (apply string-append
+              (cons (translate-regular (car exprs))
+                    (append-map
+                     (lambda (expr)
+                       (list "\\|" (translate-regular expr)))
+                     (cdr exprs)))))
+      (r:seq)))
+
+;;(r:alt (r:quote "foo") (r:quote "bar") (r:quote "baz"))
+
+
+
+(define (r:repeat min max expr)
+  (non-parenthese-expr
+   (string-append (translate-regular expr)
+                  "\\{"
+                  (number->string min)
+                  ","
+                  (or (and max (number->string max)) "")
+                  "\\}")))
+
+
+;;(r:repeat 3 5 (r:alt (r:quote "cat") (r:quote "dog")))
+
+
+(define (r:char-from string)
+  (case (string-length string)
+    ((0) (r:seq))
+    ((1) (r:quote string))
+    (else (non-parenthese-expr
+           (bracket string
+                    (lambda (members)
+                      (if (lset= eqv? '(#\- #\∧) members)
+                          '(#\- #\∧)
+                          (quote-bracketed-contents members))))))))
+
+;;(r:char-from "aaaa")
+
+
+(define (r:char-not-from string)
+  (non-parenthese-expr
+   (bracket string
+            (lambda (members)
+              (cons #\∧ (quote-bracketed-contents members))))))
+;;(r:char-not-from "aaa")
+
+
+
+(define (write-bourne-shell-grep-command expr filename)
+  (display (bourne-shell-grep-command-string expr filename)))
+
+(define (bourne-shell-grep-command-string expr filename)
+  (string-append "grep -e " (bourne-shell-quote-string (translate-regular expr)) " " filename "\n"))
+
+(define (bourne-shell-quote-string string)
+  (list->string (append (list #\')
+                        (append-map (lambda (char)
+                                      (if (char=? char #\')
+                                          (list #\' #\\ char #\')
+                                          (list char)))
+                                    (string->list string)) (list #\'))))
+
+
+
+(write-bourne-shell-grep-command
+ (r:seq (r:alt (r:char-not-from "ab") (r:char-from "tls")) (r:repeat 1 5 (r:dot)) (r:quote "\""))
+ "package.json")
+
+(write-bourne-shell-grep-command
+ (r:seq (r:quote "A") (r:repeat 1 5 (r:quote "P")))
+ "package.json")
+
+(write-bourne-shell-grep-command
+ (r:seq (r:repeat 2 5 (r:alt (r:quote "ab") (r:quote "aba"))))
+ "t.json")
+
+(write-bourne-shell-grep-command
+ (r:seq (r:quote "a") (r:repeat 1 5 (r:quote "ab")))
+ "t.json")

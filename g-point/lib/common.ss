@@ -1,5 +1,13 @@
 (library (lib common)
-  (export string-split string-empty? string-empty? string-join string-trim-left string-trim-right string-trim string-start-with string-end-with
+  (export string-split
+          string-empty?
+          string-join
+          string-trim-left
+          string-trim-right
+          string-trim
+          string-start-with
+          string-end-with
+          string-contain?
           ->string
           partial ->>
           mapcat
@@ -34,9 +42,12 @@
 
   (define string-start-with
     (lambda (s start)
-      (equal?
-       (substring s 0 (string-length start))
-       start)))
+      (let ([slen (string-length s)]
+            [start-len (string-length start)])
+        (and (>= slen start-len)
+             (equal?
+              (substring s 0 (string-length start))
+              start)))))
 
   (define string-end-with
     (lambda (s end)
@@ -45,6 +56,14 @@
        (let ([len (string-length s)])
          (substring s (- len (string-length end)) len)))))
 
+  ;; (string-contain? "sadfasdgg" "gg")
+  (define (string-contain? s sub)
+    (let ([slen (string-length s)]
+          [sublen (string-length sub)])
+      (cond
+       [(< slen sublen) #f]
+       [(string-start-with s sub) #t]
+       [else (string-contain? (substring s 1 slen) sub)])))
 
 
   ;; 将 aa-bb-cc 分割为 '(aa bb cc)

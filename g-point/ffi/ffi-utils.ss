@@ -2,15 +2,22 @@
     (ffi ffi-utils)
   (export define-enumeration* define-function define-enum-ftype
           define-ffi-from-cform define-ffi-from-cforms
-          machine-lib-suffix
           with-pointer
-          c-bin-dire
           load-lib
           char*->u8 char*->string)
-  (import (chezscheme))
+  (import (chezscheme)
+          (common compile))
 
 
-  (define c-bin-dire (string-append (caar (library-directories)) "/c"))
+
+  (define (load-lib name)
+    (let* ([suffix (current-system-suffix)]
+           [path (string-append thirdpart-lib-dire "/" name)])
+      (if (file-exists? path)
+          (load-shared-object path)
+          (load-shared-object (string-append path suffix)))))
+
+
 
   ;; Uses make-enumeration to define an enum with the following:
   ;; function (name x) -> index
@@ -100,21 +107,6 @@
 
 
 
-  (define (machine-lib-suffix)
-    (begin
-      (case (machine-type)
-        [(i3le ti3le a6le ta6le) ".so.6"]
-        [(i3osx ti3osx a6osx ta6osx) ".dylib"]
-        [(i3nt ti3nt a6nt ta6nt) ".dll"]
-        [else ".so"])))
-
-
-  (define (load-lib name)
-    (let* ([suffix (machine-lib-suffix)]
-          [path (string-append c-bin-dire "/" name suffix)])
-      (if (file-exists? path)
-          (load-shared-object path)
-          (load-shared-object (string-append name suffix)))))
 
 
   (define-syntax define-ffi-from-cform

@@ -139,7 +139,6 @@
 
   (define _init
     (begin
-      (display "aaa")
       (load-lib "libcurl"))
     )
 

@@ -43,7 +43,7 @@
 (define-ftype mg_connection
   (struct))
 
-(define-ftype http_message
+(define-ftype mg_http_message
   (struct
       [message mg_str]
     [body mg_str]
@@ -74,30 +74,41 @@
                      (void* void*)
                      void))
 
-(define mg_connect_http
-  (foreign-procedure "mg_connect_http"
-                     (void* void* utf-8 utf-8 utf-8)
-                     (* mg_connection)))
-
 (define mg_mgr_poll
   (foreign-procedure "mg_mgr_poll"
                      (void* int)
-                     int))
+                     void))
 
 (define mg_mgr_free
   (foreign-procedure "mg_mgr_free"
                      (void*)
                      void))
 
-#|
-struct mg_connection *mg_bind(struct mg_mgr *mgr, const char *address,
-    MG_CB(mg_event_handler_t handler,
-    void *user_data));
-|#
-(define mg_bind
-  (foreign-procedure "mg_bind"
+
+(define mg_listen
+  (foreign-procedure "mg_listen"
                      (void* string void* void*)
                      void*))
+
+(define mg_send
+  (foreign-procedure
+   "mg_send"
+   (void* void* int)
+   int))
+
+(define mg_printf
+  (foreign-procedure
+   "mg_printf"
+   (void* string string)
+   int))
+
+(define mg_http_match_uri
+  (foreign-procedure
+   "mg_http_match_uri"
+   (void* string)
+   boolean))
+
+
 
 #|
 void mg_send_head(struct mg_connection *n, int status_code,
@@ -126,11 +137,7 @@ void mg_send(struct mg_connection *, const void *buf, int len);
    "mg_send"
    (void* string int)
    void))
-(define mg_send
-  (foreign-procedure
-   "mg_send"
-   (void* void* int)
-   void))
+
 
 
 (define mg_parse_multipart

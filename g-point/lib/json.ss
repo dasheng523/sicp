@@ -1,371 +1,335 @@
-
-;  MIT License
-
-;  Copyright guenchi (c) 2018 - 2019
-
-;  Permission is hereby granted, free of charge, to any person obtaining a copy
-;  of this software and associated documentation files (the "Software"), to deal
-;  in the Software without restriction, including without limitation the rights
-;  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-;  copies of the Software, and to permit persons to whom the Software is
-;  furnished to do so, subject to the following conditions:
-
-;  The above copyright notice and this permission notice shall be included in all
-;  copies or substantial portions of the Software.
-
-;  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-;  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-;  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-;  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-;  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-;  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-;  SOFTWARE.
-
-
 (library (lib json)
   (export
     string->json
     json->string
-    json-ref
-    json-set
-    json-drop
-    json-push
-    json-reduce
   )
-  (import (scheme))
+  (import (lib common)
+          (common file)
+          (common combinator))
 
-  (define vector->alist
-    (lambda (x)
-      (let l ((x (vector->list x))(n 0))
-        (cons (cons n (car x))
-              (if (null? (cdr x))
-                  '()
-                  (l (cdr x) (+ n 1)))))))
+  (define (make-pattern check)
+    (cons check #f))
 
-  (define (loose-car pair-or-empty)
-    (if (eq? '() pair-or-empty)
-        '()
-        (car pair-or-empty)))
+  (define (pattern-check pattern)
+    (car pattern))
 
-  (define (loose-cdr pair-or-empty)
-    (if (eq? '() pair-or-empty)
-        '()
-        (cdr pair-or-empty)))
 
-  (define (string-length-sum strings)
-    (let loop ((o 0)
-               (rest strings))
-      (cond
-       ((eq? '() rest) o)
-       (else
-        (loop (+ o (string-length (car rest)))
-              (cdr rest))))))
+  (define (parse pattern str)
+    (and (> (string-length str) 0)
+         ((pattern-check pattern) str)))
 
-  (define (fast-string-list-append strings)
-    (let* ((output-length (string-length-sum strings))
-           (output (make-string output-length #\_))
-           (fill 0))
-      (let outer ((rest strings))
-        (cond
-         ((eq? '() rest) output)
-         (else
-          (let* ((s (car rest))
-                 (n (string-length s)))
-            (let inner ((i 0))
-              (cond ((= i n) 'done)
-                    (else
-                     (string-set! output fill (string-ref s i))
-                     (set! fill (+ fill 1))
-                     (inner (+ i 1))))))
-          (outer (cdr rest)))))))
+  ;; 跳过模式前面的空白字符
+  (define (filter-blank-pattern p)
+    (make-pattern
+     (lambda (s)
+       (let loop ([i 0] [s s])
+         (let ([len (string-length s)])
+           (cond
+            [(and (> len 0) (char-whitespace? (string-ref s 0)))
+             (loop (+ i 1) (substring s 1 len))]
+            [else (let ([rs (parse p s)])
+                    (and rs
+                         (cons (car rs) (+ i (cdr rs)))))]))))))
 
- 
-  (define string->json
-    (lambda (s)
-      (read (open-input-string
-        (let l
-          ((s s)(bgn 0)(end 0)(rst '())(len (string-length s))(quts? #f)(lst '(#t)))
+  (assert (equal? (parse (filter-blank-pattern (make-simple-pattern "a")) "   a")
+                  (cons "a" 4)))
+
+
+  (define (make-simple-pattern s)
+    (make-pattern (lambda (k)
+                    (and (string-start-with k s)
+                         (cons s (string-length s))))))
+  ;; (parse (make-simple-pattern "{") "{88")
+
+
+
+
+  ;; 如果符合模式p, 则匹配第一个字符，否则#f
+  ;; (parse (first-char-pattern (make-simple-pattern "abbb")) "abbbbbb")
+  (define (first-char-pattern p)
+    (define (do-match k)
+      (let ([rs (parse p k)])
+        (and rs (cons (string-ref k 0) 1))))
+    (make-pattern do-match))
+
+  ;; 模式取否，如果匹配#f
+  ;; (parse (not-pattern (make-simple-pattern "abbb")) "babbbbbb")
+  (define (not-pattern p)
+    (define (do-match k)
+      (let ([rs (parse p k)])
+        (and (not rs)
+             (cons k 0))))
+    (make-pattern do-match))
+
+
+  ;; or 组合
+  (define (or-pattern p . rest)
+    (define (do-compose ps)
+      (lambda (k)
+        (let loop ([ps ps])
           (cond
-            ((= end len)
-              (fast-string-list-append (reverse rst)))
-            ((and quts? (not (char=? (string-ref s end) #\")))
-              (l s bgn (+ 1 end) rst len quts? lst))
-            (else
-              (case (string-ref s end)
-              ((#\{)
-                (l s (+ 1 end) (+ 1 end)
-                  (cons
-                    (string-append
-                      (substring s bgn end) "((" ) rst) len quts? (cons #t lst)))
-              ((#\})
-                (l s (+ 1 end) (+ 1 end)
-                  (cons
-                    (string-append
-                      (substring s bgn end) "))") rst) len quts? (loose-cdr lst)))
-              ((#\[)
-                (l s (+ 1 end) (+ 1 end)
-                  (cons
-                    (string-append
-                      (substring s bgn end) "#(") rst) len quts? (cons #f lst)))
-              ((#\])
-                (l s (+ 1 end) (+ 1 end)
-                  (cons
-                    (string-append
-                      (substring s bgn end) ")") rst) len quts? (loose-cdr lst)))
-              ((#\:)
-                (l s (+ 1 end) (+ 1 end)
-                  (cons
-                    (string-append
-                      (substring s bgn end) " . ") rst) len quts? lst))
-              ((#\,)
-                (l s (+ 1 end) (+ 1 end)
-                  (cons
-                    (string-append
-                      (substring s bgn end)
-                      (if (loose-car lst) ")(" " ")) rst) len quts? lst))
-              ((#\")
-                (l s bgn (+ 1 end) rst len (not quts?) lst))
-              (else
-                (l s bgn (+ 1 end) rst len quts? lst))))))))))
+           [(null? ps) #f]
+           [else (or (parse (car ps) k)
+                     (loop (cdr ps)))]))))
+    (make-pattern (do-compose (cons p rest))))
 
-  (define json->string
-    (lambda (lst)
-      (define f
-        (lambda (x)
+  (assert (equal? (parse (or-pattern (make-simple-pattern "a")
+                                     (make-simple-pattern "666")) "666")
+                  (cons "666" 3)))
+
+  ;;(parse number-pattern "a666")
+
+
+  (define empty-pattern
+    (make-pattern
+     (lambda (k)
+       (cons '() 0))))
+
+  (assert (equal? (parse empty-pattern "aa")
+                  (cons '() 0)))
+
+
+  ;; and 组合
+  (define (and-pattern pattern . rest)
+    (define (the-compose ps)
+      (lambda (k)
+        (let loop ([rs '()] [i 0] [k k] [ps ps])
           (cond
-            ((string? x) (string-append "\"" x "\""))
-            ((number? x) (number->string x))
-            ((symbol? x) (symbol->string x)))))
-      (define c
-        (lambda (x)
-          (if (= x 0) "" ",")))
-      (let l ((lst lst)(x (if (vector? lst) "[" "{")))
-        (if (vector? lst)
-          (string-append x
-            (let t ((len (vector-length lst))(n 0)(y ""))
-              (if (< n len)
-                (t len (+ n 1)
-                  (let ((k (vector-ref lst n)))
-                    (if (atom? k)
-                      (if (vector? k)
-                        (l k (string-append y (c n) "["))
-                        (string-append y (c n) (f k)))
-                      (l k (string-append y (c n) "{")))))
-                (string-append y "]"))))
-          (let ((k (cdar lst)))
-            (if (null? (cdr lst))
-              (string-append x "\"" (caar lst) "\":"
-                (cond
-                  ((list? k)(l k "{"))
-                  ((vector? k)(l k "["))
-                  (else (f k))) "}")
-              (l (cdr lst)
-                (cond
-                  ((list? k)(string-append x "\"" (caar lst) "\":" (l k "{") ","))
-                  ((vector? k)(string-append x "\"" (caar lst) "\":" (l k "[") ","))
-                  (else (string-append x "\"" (caar lst) "\":" (f k) ","))))))))))
+           [(string=? k "") (cons rs i)]
+           [(null? ps) (cons rs i)]
+           [else (let ([pd (parse (car ps) k)]
+                       [len (string-length k)])
+                   (and pd
+                        (cond
+                         [(and (= len (cdr pd)) (null? (cdr ps)))
+                          (cons (append rs (list (car pd)))
+                                (+ i (cdr pd)))]
+                         [(> len (cdr pd))
+                          (loop (append rs (list (car pd)))
+                                (+ i (cdr pd))
+                                (substring k (cdr pd) len)
+                                (cdr ps))]
+                         [else #f])))]))))
+    (make-pattern (the-compose (cons pattern rest))))
 
-  (define ref
-    (lambda (x k)
-      (define return
-        (lambda (x)
-          (if (symbol? x)
-            (cond
-              ((symbol=? x 'true) #t)
-              ((symbol=? x 'false) #f)
-              ((symbol=? x 'null) '())
-              (else x))
-            x)))
-      (if (vector? x)
-        (return (vector-ref x k))
-        (let l ((x x)(k k))
-          (if (null? x)
-            '()
-            (if (equal? (caar x) k)
-              (return (cdar x))
-              (l (cdr x) k)))))))
+  (assert (equal? (parse (and-pattern number-pattern (make-simple-pattern "b")) "12b")
+                  (cons '(12 "b") 3)))
+  (assert (not (parse (and-pattern number-pattern (make-simple-pattern "b")) "1")))
 
 
-  (define-syntax json-ref
-    (syntax-rules ()
-      ((_ j k1) (ref j k1))
-      ((_ j k1 k2 ...) (json-ref (json-ref j k1) k2 ...))))
+  ;; 匹配n次
+  (define (repeat-pattern p n)
+    (apply and-pattern (make-list n p)))
 
-  (define set
-    (lambda (x v p)
-      (let ((x x)(v v)(p (if (procedure? p) p (lambda (x) p))))
-        (if (vector? x)
-          (list->vector
-            (cond 
-              ((boolean? v)
-                (if v
-                  (let l ((x (vector->alist x))(p p))
-                    (if (null? x)
-                      '()
-                      (cons (p (cdar x)) (l (cdr x) p))))))
-              ((procedure? v)
-                (let l ((x (vector->alist x))(v v)(p p))
-                  (if (null? x)
-                    '()
-                    (if (v (caar x))
-                      (cons (p (cdar x)) (l (cdr x) v p))
-                      (cons (cdar x) (l (cdr x) v p))))))
-              (else
-                (let l ((x (vector->alist x))(v v)(p p))
-                  (if (null? x)
-                    '()
-                    (if (equal? (caar x) v)
-                      (cons (p (cdar x)) (l (cdr x) v p))
-                      (cons (cdar x) (l (cdr x) v p))))))))
+
+  ;; 一直匹配，直到匹配失败
+  (define (while-pattern p)
+    (define (the-compose k)
+      (let loop ([rs '()] [i 0] [k k])
+        (let ([pd (parse p k)]
+              [len (string-length k)])
           (cond
-            ((boolean? v)
-              (if v
-                (let l ((x x)(p p))
-                  (if (null? x)
-                    '()
-                    (cons (cons (caar x) (p (cdar x)))(l (cdr x) p))))))
-            ((procedure? v)
-              (let l ((x x)(v v)(p p))
-                (if (null? x)
-                  '()
-                  (if (v (caar x))
-                    (cons (cons (caar x) (p (cdar x)))(l (cdr x) v p))
-                    (cons (car x) (l (cdr x) v p))))))
-            (else
-              (let l ((x x)(v v)(p p))
-                (if (null? x)
-                  '()
-                  (if (equal? (caar x) v)
-                    (cons (cons v (p (cdar x)))(l (cdr x) v p))
-                    (cons (car x) (l (cdr x) v p)))))))))))
+           [(and pd (= len (cdr pd)))
+            (cons (append rs (list (car pd)))
+                  (+ i (cdr pd)))]
+           [(and pd (> len (cdr pd)))
+            (loop (append rs (list (car pd)))
+                  (+ i (cdr pd))
+                  (substring k (cdr pd) len))]
+           [else (cons rs i)]))))
+    (make-pattern the-compose))
+
+  (assert (equal? (parse (while-pattern (filter-blank-pattern (make-simple-pattern "a"))) "a a a")
+                  (cons '("a" "a" "a") 5)))
 
 
-  (define-syntax json-set
-    (syntax-rules ()
-      ((_ j v1 p) (set j v1 p))
-      ((_ j v1 v2 ... p) (json-set j v1 (lambda (x) (json-set x v2 ... p))))))       
-           
-           
-
-  (define push
-    (lambda (x k v)
-      (if (vector? x)
-        (if (= (vector-length x) 0)
-          (vector v)
-          (list->vector  
-            (let l ((x (vector->alist x))(k k)(v v)(b #f))
-              (if (null? x)
-                (if b '() (cons v '()))
-                (if (equal? (caar x) k)
-                  (cons v (cons  (cdar x) (l (cdr x) k v #t)))
-                  (cons (cdar x) (l (cdr x) k v b)))))))
-        (cons (cons k v) x))))
+  ;; 将模式的匹配值转换一下
+  (define (convert-pattern p f)
+    (make-pattern
+     (lambda (s)
+       (let ([rs (parse p s)])
+         (and rs
+              (cons (f (car rs))
+                    (cdr rs)))))))
 
 
-           
-  (define-syntax json-push
-    (syntax-rules ()
-      ((_ j k v) (push j k v))
-      ((_ j v1 k v) (json-set j v1 (lambda (x) (json-push x k v))))
-      ((_ j v1 v2 ... k v) (json-set j v1 (lambda (x) (json-push x v2 ... k v))))))  
-           
-           
+  ;; join模式，类似string-join
+  (define (join-pattern p slim)
+    (convert-pattern
+     (and-pattern
+      (while-pattern (and-pattern p slim))
+      p)
+     (lambda (x)
+       (append
+        (map (lambda (item) (car item)) (car x))
+        (cdr x)))))
 
-  (define drop
-    (lambda (x v)
-      (if (vector? x)
-        (if (> (vector-length x) 0)
-          (list->vector
-            (cond
-              ((procedure? v)
-                (let l ((x (vector->alist x))(v v))
-                  (if (null? x)
-                    '()
-                    (if (v (caar x))
-                      (l (cdr x) v)
-                      (cons (cdar x) (l (cdr x) v))))))
-              (else 
-                (let l ((x (vector->alist x))(v v))
-                  (if (null? x)
-                    '()
-                    (if (equal? (caar x) v)
-                      (l (cdr x) v)
-                      (cons (cdar x) (l (cdr x) v)))))))))
-        (cond 
-          ((procedure? v)
-            (let l ((x x)(v v))
-              (if (null? x)
-                '()
-                (if (v (caar x))
-                  (l (cdr x) v)
-                  (cons (car x) (l (cdr x) v))))))
-          (else  
-            (let l ((x x)(v v))
-              (if (null? x)
-                '()
-                (if (equal? (caar x) v)
-                  (l (cdr x) v)
-                  (cons (car x) (l (cdr x) v))))))))))
+  (assert (equal? (parse (join-pattern
+                     (repeat-pattern (make-simple-pattern "a") 3)
+                     (make-simple-pattern "b"))
+                    "aaabaaa")
+                  (cons '(("a" "a" "a") ("a" "a" "a")) 7)))
 
-           
-  (define-syntax json-drop
-    (syntax-rules ()
-      ((_ j v1) (drop j v1))
-      ((_ j v1 v2 ...) (json-set j v1 (lambda (x) (json-drop x v2 ...))))))
-           
-           
-          
-  (define reduce
-    (lambda (x v p)
-        (if (vector? x)
-          (list->vector
-            (cond 
-              ((boolean? v)
-                (if v
-                  (let l ((x (vector->alist x))(p p))
-                    (if (null? x)
-                      '()
-                      (cons (p (caar x) (cdar x)) (l (cdr x) p))))))
-              ((procedure? v)
-                (let l ((x (vector->alist x))(v v)(p p))
-                  (if (null? x)
-                    '()
-                    (if (v (caar x))
-                      (cons (p (caar x) (cdar x)) (l (cdr x) v p))
-                      (cons (cdar x) (l (cdr x) v p ))))))
-              (else
-                (let l ((x (vector->alist x))(v v)(p p))
-                  (if (null? x)
-                    '()
-                    (if (equal? (caar x) v)
-                      (cons (p (caar x) (cdar x)) (l (cdr x) v p))
-                      (cons (cdar x) (l (cdr x) v p ))))))))
-          (cond
-            ((boolean? v)
-              (if v
-                (let l ((x x)(p p))
-                  (if (null? x)
-                    '()
-                    (cons (cons (caar x) (p (caar x) (cdar x)))(l (cdr x) p))))))
-            ((procedure? v)
-              (let l ((x x)(v v)(p p))
-                (if (null? x)
-                  '()
-                  (if (v (caar x))
-                    (cons (cons (caar x) (p (caar x) (cdar x)))(l (cdr x) v p))
-                    (cons (car x) (l (cdr x) v p ))))))
-            (else
-              (let l ((x x)(v v)(p p))
-                (if (null? x)
-                  '()
-                  (if (equal? (caar x) v)
-                    (cons (cons v (p v (cdar x)))(l (cdr x) v p))
-                    (cons (car x) (l (cdr x) v p))))))))))
+  (assert (equal? (parse (join-pattern
+                          (filter-blank-pattern (make-simple-pattern "a"))
+                          (filter-blank-pattern (make-simple-pattern ",")))
+                         " a , a")
+                  (cons '("a" "a") 6)))
 
 
-  (define-syntax json-reduce
-    (syntax-rules ()
-      ((_ j v1 p) (reduce j v1 (lambda (x y)(p (cons x '()) y))))
-      ((_ j v1 v2 ... p) (json-reduce j v1 (lambda (x y) (json-reduce y v2 ... (lambda (n m)(p (cons (car x) n) m))))))))
 
+  (define (filter-empty-pattern p)
+    (make-pattern
+     (lambda (s)
+       (let ([rs (parse p s)])
+         (if (null? (car rs))
+             #f
+             rs)))))
+  (assert (not (parse (filter-empty-pattern (while-pattern (make-simple-pattern "a"))) "qq")))
+
+  ;; 布尔模式
+  (define boolean-pattern
+    (convert-pattern
+     (apply or-pattern (map make-simple-pattern (list "true" "false")))
+     (lambda (x)
+       (string=? x "true"))))
+
+  (assert (equal? (parse boolean-pattern "true")
+                  (cons #t 4)))
+  (assert (equal? (parse boolean-pattern "false")
+                  (cons #f 5)))
+
+  ;; null模式
+  (define null-pattern
+    (convert-pattern
+     (make-simple-pattern "null")
+     (lambda (x) #f)))
+
+  (assert (equal? (parse null-pattern "null")
+                  (cons #f 4)))
+
+
+  ;; 数字模式
+  (define number-pattern
+    (let ([lst (list "0" "1" "2" "3" "4" "5" "6" "7" "8" "9")])
+      (convert-pattern
+       (filter-empty-pattern
+        (while-pattern (apply or-pattern (map make-simple-pattern lst))))
+       (lambda (x)
+         (if (null? x)
+             #f
+             (string->number (string-join x "")))))))
+
+  (assert (equal? (parse number-pattern "905a") (cons 905 3)))
+  (assert (eq? (parse number-pattern "a905a") #f))
+  (assert (equal? (parse (join-pattern number-pattern (make-simple-pattern ",")) "1,2,3,4")
+                  (cons '(1 2 3 4) 7)))
+
+
+
+
+  ;; 字符串模式
+  (define string-pattern
+    (convert-pattern
+     (and-pattern (make-simple-pattern "\"")
+                  (or-pattern
+                   (filter-empty-pattern
+                    (while-pattern (or-pattern
+                                    (convert-pattern
+                                     (and-pattern (make-simple-pattern "\\") (make-simple-pattern "\""))
+                                     (lambda (x) #\"))
+                                    (first-char-pattern (not-pattern (make-simple-pattern "\""))))))
+                   (convert-pattern empty-pattern
+                                    (lambda (x) '())))
+                  (make-simple-pattern "\""))
+     (lambda (x)
+       (list->string (cadr x)))))
+
+  (assert (equal? (parse string-pattern "\"dsfas\\\"df\"asd")
+                  (cons "dsfas\"df" 11)))
+  (assert (equal? (parse string-pattern "\"\"")
+                  (cons "" 2)))
+
+
+  ;; 懒模式
+  (define (lazy-pattern f)
+    (make-pattern
+     (lambda (k)
+       (parse (f) k))))
+
+  ;; (parse (lazy-pattern (lambda () number-pattern)) "3344")
+
+  (define skip-blank-simple-pattern
+    (compose filter-blank-pattern make-simple-pattern))
+
+  (define json-pattern
+    (letrec ([make-json-pattern
+              (lambda ()
+                (let ([lst (list (lazy-pattern make-array-pattern)
+                                 (lazy-pattern make-object-pattern)
+                                 number-pattern
+                                 string-pattern
+                                 boolean-pattern
+                                 null-pattern)])
+                  (apply or-pattern (map filter-blank-pattern lst))))]
+             [make-array-pattern
+              (lambda ()
+                (convert-pattern
+                 (and-pattern
+                  (skip-blank-simple-pattern "[")
+                  (or-pattern
+                   (join-pattern (lazy-pattern make-json-pattern)
+                                 (skip-blank-simple-pattern ","))
+                   empty-pattern)
+                  (skip-blank-simple-pattern "]"))
+                 (lambda (x)
+                   (cadr x))))]
+             [make-object-pattern
+              (lambda ()
+                (convert-pattern
+                 (and-pattern
+                  (skip-blank-simple-pattern "{")
+                  (join-pattern (and-pattern
+                                 (filter-blank-pattern string-pattern)
+                                 (skip-blank-simple-pattern ":")
+                                 (lazy-pattern make-json-pattern))
+                                (skip-blank-simple-pattern ","))
+                  (skip-blank-simple-pattern "}"))
+                 (lambda (x)
+                   (map (lambda (x) (cons (car x) (caddr x))) (cadr x)))))])
+      (make-json-pattern)))
+
+  (assert (equal? (parse json-pattern "[1,2,\"fff\",4]")
+                  (cons '(1 2 "fff" 4) 13)))
+
+  (assert (equal? (parse json-pattern "[]")
+                  (cons '() 2)))
+  (assert (equal? (parse json-pattern "[1,\"a\",[1,2],4]")
+                  (cons '(1 "a" (1 2) 4) 15)))
+
+  (assert (equal? (parse json-pattern " [1,2 ,\"f ff\", 4]")
+                  (cons '(1 2 "f ff" 4) 17)))
+
+  (assert (equal? (parse json-pattern " null")
+                  (cons #f 5)))
+
+  (assert (equal? (parse json-pattern " \"\"")
+                  (cons "" 3)))
+
+
+  (assert (equal? (parse json-pattern " {\"a\" : [2, 7],\"b\" :\"6 \"\t ,\"c\"\n : false}")
+                  (cons (list (cons "a" (list 2 7))
+                              (cons "b" "6 ")
+                              (cons "c" #f))
+                        40)))
+
+
+  (define (string->json s)
+    (let ([rs (parse json-pattern s)])
+      (if rs
+          (car rs)
+          (error 'string->json "json格式不正确"))))
+
+
+  ;; (read-string-with-file "e:/aaa.txt" string->json)
 )
