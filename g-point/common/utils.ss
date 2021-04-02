@@ -1,12 +1,18 @@
 (library (common utils)
-  (export platform-system
+  (export identity
+          platform-system
           platform-bit
           platform-threaded?
           current-project-dire
+          make-map
+          map-get
+          map-get-default
+          map-get-proc
           match-table)
   (import (chezscheme)
           (common combinator)
           (lib common))
+
 
   (define system-table
     (list
@@ -18,6 +24,37 @@
     (list
      (cons (list "i3" "arm32" "ppc32") 32)
      (cons (list "a6") 64)))
+
+
+  ;; 创建一个类似java的map的列表， k是symbol才能与map-get配合使用
+  (define (make-map k v . kvs)
+    (let ([n (length kvs)])
+      (assert (even? n))
+      (cond
+       [(= n 0) (list (cons k v))]
+       [else (append (make-map k v)
+                     (apply make-map kvs))])))
+
+  ;; 可自定义判断条件
+  (define map-get-proc
+    (compose
+     (lambda (x) (and x (cdr x)))
+     assp
+     (lambda (f m k)
+       (values (lambda (x) (f k x))
+               m))))
+  ;; (map-get-proc eq? (make-map 'a 1 'b 2) 'a)
+
+
+  ;; 类似get函数，k只能是symbol
+  (define map-get
+    ((default-argument 0 eq?) map-get-proc))
+
+  (define map-get-default
+    (spread-combine (lambda (x y) (or x y)) map-get identity))
+
+  ;; (map-get (make-map 'a 1 'b 2) 'b)
+  ;; (map-get-default (make-map 'a 1 'b 2) 'c 666)
 
 
 

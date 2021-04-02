@@ -20,6 +20,7 @@
           eachcall
           nestedcall
           if-condition
+          restrict-arity
           )
   (import (chezscheme))
 
@@ -97,8 +98,6 @@
 
 
 
-
-
   ;; 将2个参数的函数扩展为支持无限参数的函数(left)
   ;; ((wrap-infinite-params (lambda (a b) (+ a b))) 1 2 3 4)
   (define (wrap-infinite-params f)
@@ -120,7 +119,8 @@
                        'compose "参数数量不支持")
            (call-with-values
                (lambda () (apply f args)) g))
-         (procedure-arity-mask f))])))
+         (proc-arity-mask f))])))
+
 
 
   ;; 使f的返回值是列表，则返回values，否则直接返回
@@ -150,9 +150,6 @@
 
 
 
-
-
-
   (define (parallel-combine h f g)
     (compose h (parallel-apply f g)))
 
@@ -165,7 +162,7 @@
                      (gv (apply g args))]
           (apply values (append fv gv)))))
     (restrict-arity-mask the-combination
-                         (procedure-arity-mask f)))
+                         (proc-arity-mask f)))
   #;((parallel-combine list
   (lambda (x y z) (values x y))
   (lambda (a b c) (values a b c)))
@@ -181,6 +178,8 @@
   ;; 分割参数，前n个参数传入给f，剩余的传给g，并把其结果返回
   ;; n 是f所支持的最小参数个数
   ;; ((spread-apply (lambda (x y) (+ x y)) list) 1 2 3 'b 'c)
+  ;; ((spread-apply (lambda (x y) (+ x y)) (lambda (x y z) (list x y z))) 1 2 3 'b 'c)
+
   (define (spread-apply f g)
     (let* ([f-mask (proc-arity-mask f)]
            [g-mask (proc-arity-mask g)]
@@ -270,12 +269,18 @@
   ;; (((default-argument 0 'ee) (lambda (a b c) (list a b c))) 'bb 'aa)
   (define (default-argument i v)
     (lambda (f)
-      (assert-msg (support-arity-n? f (+ i 1)) 'default-argument "参数不支持")
       (compose-values f
                       (restrict-arity-mask
                        (lambda args
                          (list-insert args i v))
                        (ash (proc-arity-mask f) -1)))))
+
+  #;(let* ([f (lambda (a b c) (list a b c))]
+         [g (restrict-arity-mask
+             f
+             (ash (proc-arity-mask f) -1))])
+    (mask-arity-min (proc-arity-mask g)))
+
 
 
   ;; (((default-arguments (cons 2 'a) (cons 0 'b)) (lambda (x y z) (list x y z))) 'c)

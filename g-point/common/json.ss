@@ -3,8 +3,7 @@
     string->json
     json->string
   )
-  (import (chezscheme)
-          (lib common)
+  (import (lib common)
           (common file)
           (common combinator))
 
@@ -19,13 +18,6 @@
     (and (> (string-length str) 0)
          ((pattern-check pattern) str)))
 
-
-
-  (define (make-simple-pattern s)
-    (make-pattern (lambda (k)
-                    (and (string-start-with k s)
-                         (cons s (string-length s))))))
-
   ;; 跳过模式前面的空白字符
   (define (filter-blank-pattern p)
     (make-pattern
@@ -38,6 +30,17 @@
             [else (let ([rs (parse p s)])
                     (and rs
                          (cons (car rs) (+ i (cdr rs)))))]))))))
+
+  (assert (equal? (parse (filter-blank-pattern (make-simple-pattern "a")) "   a")
+                  (cons "a" 4)))
+
+
+  (define (make-simple-pattern s)
+    (make-pattern (lambda (k)
+                    (and (string-start-with k s)
+                         (cons s (string-length s))))))
+  ;; (parse (make-simple-pattern "{") "{88")
+
 
 
 
@@ -70,6 +73,9 @@
                      (loop (cdr ps)))]))))
     (make-pattern (do-compose (cons p rest))))
 
+  (assert (equal? (parse (or-pattern (make-simple-pattern "a")
+                                     (make-simple-pattern "666")) "666")
+                  (cons "666" 3)))
 
   ;;(parse number-pattern "a666")
 
@@ -78,6 +84,9 @@
     (make-pattern
      (lambda (k)
        (cons '() 0))))
+
+  (assert (equal? (parse empty-pattern "aa")
+                  (cons '() 0)))
 
 
   ;; and 组合
@@ -103,6 +112,9 @@
                          [else #f])))]))))
     (make-pattern (the-compose (cons pattern rest))))
 
+  (assert (equal? (parse (and-pattern number-pattern (make-simple-pattern "b")) "12b")
+                  (cons '(12 "b") 3)))
+  (assert (not (parse (and-pattern number-pattern (make-simple-pattern "b")) "1")))
 
 
   ;; 匹配n次
@@ -127,6 +139,9 @@
            [else (cons rs i)]))))
     (make-pattern the-compose))
 
+  (assert (equal? (parse (while-pattern (filter-blank-pattern (make-simple-pattern "a"))) "a a a")
+                  (cons '("a" "a" "a") 5)))
+
 
   ;; 将模式的匹配值转换一下
   (define (convert-pattern p f)
@@ -149,6 +164,17 @@
         (map (lambda (item) (car item)) (car x))
         (cdr x)))))
 
+  (assert (equal? (parse (join-pattern
+                     (repeat-pattern (make-simple-pattern "a") 3)
+                     (make-simple-pattern "b"))
+                    "aaabaaa")
+                  (cons '(("a" "a" "a") ("a" "a" "a")) 7)))
+
+  (assert (equal? (parse (join-pattern
+                          (filter-blank-pattern (make-simple-pattern "a"))
+                          (filter-blank-pattern (make-simple-pattern ",")))
+                         " a , a")
+                  (cons '("a" "a") 6)))
 
 
 
@@ -159,7 +185,7 @@
          (if (null? (car rs))
              #f
              rs)))))
-
+  (assert (not (parse (filter-empty-pattern (while-pattern (make-simple-pattern "a"))) "qq")))
 
   ;; 布尔模式
   (define boolean-pattern
@@ -168,7 +194,10 @@
      (lambda (x)
        (string=? x "true"))))
 
-
+  (assert (equal? (parse boolean-pattern "true")
+                  (cons #t 4)))
+  (assert (equal? (parse boolean-pattern "false")
+                  (cons #f 5)))
 
   ;; null模式
   (define null-pattern
@@ -176,7 +205,8 @@
      (make-simple-pattern "null")
      (lambda (x) 'nil)))
 
-
+  (assert (equal? (parse null-pattern "null")
+                  (cons 'nil 4)))
 
 
   ;; 数字模式
@@ -189,6 +219,11 @@
          (if (null? x)
              #f
              (string->number (string-join x "")))))))
+
+  (assert (equal? (parse number-pattern "905a") (cons 905 3)))
+  (assert (eq? (parse number-pattern "a905a") #f))
+  (assert (equal? (parse (join-pattern number-pattern (make-simple-pattern ",")) "1,2,3,4")
+                  (cons '(1 2 3 4) 7)))
 
 
 
@@ -210,6 +245,10 @@
      (lambda (x)
        (list->string (cadr x)))))
 
+  (assert (equal? (parse string-pattern "\"dsfas\\\"df\"asd")
+                  (cons "dsfas\"df" 11)))
+  (assert (equal? (parse string-pattern "\"\"")
+                  (cons "" 2)))
 
 
   ;; 懒模式
@@ -260,58 +299,6 @@
                    (map (lambda (x) (cons (car x) (caddr x))) (cadr x)))))])
       (make-json-pattern)))
 
-
-#|;
-  (assert (equal? (parse (filter-blank-pattern (make-simple-pattern "a")) "   a")
-                  (cons "a" 4)))
-  (assert (equal? (parse (or-pattern (make-simple-pattern "a")
-                                     (make-simple-pattern "666")) "666")
-                  (cons "666" 3)))
-
-  (assert (equal? (parse empty-pattern "aa")
-                  (cons '() 0)))
-
-  (assert (equal? (parse (and-pattern number-pattern (make-simple-pattern "b")) "12b")
-                  (cons '(12 "b") 3)))
-  (assert (not (parse (and-pattern number-pattern (make-simple-pattern "b")) "1")))
-
-  (assert (equal? (parse (while-pattern (filter-blank-pattern (make-simple-pattern "a"))) "a a a")
-                  (cons '("a" "a" "a") 5)))
-
-  (assert (equal? (parse (join-pattern
-                     (repeat-pattern (make-simple-pattern "a") 3)
-                     (make-simple-pattern "b"))
-                    "aaabaaa")
-                  (cons '(("a" "a" "a") ("a" "a" "a")) 7)))
-
-  (assert (equal? (parse (join-pattern
-                          (filter-blank-pattern (make-simple-pattern "a"))
-                          (filter-blank-pattern (make-simple-pattern ",")))
-                         " a , a")
-                  (cons '("a" "a") 6)))
-
-  (assert (not (parse (filter-empty-pattern (while-pattern (make-simple-pattern "a"))) "qq")))
-
-  (assert (equal? (parse boolean-pattern "true")
-                  (cons #t 4)))
-  (assert (equal? (parse boolean-pattern "false")
-                  (cons #f 5)))
-
-  (assert (equal? (parse null-pattern "null")
-                  (cons 'nil 4)))
-
-
-  (assert (equal? (parse number-pattern "905a") (cons 905 3)))
-  (assert (eq? (parse number-pattern "a905a") #f))
-  (assert (equal? (parse (join-pattern number-pattern (make-simple-pattern ",")) "1,2,3,4")
-                  (cons '(1 2 3 4) 7)))
-
-  (assert (equal? (parse string-pattern "\"dsfas\\\"df\"asd")
-                  (cons "dsfas\"df" 11)))
-  (assert (equal? (parse string-pattern "\"\"")
-                  (cons "" 2)))
-
-
   (assert (equal? (parse json-pattern "[1,2,\"fff\",4]")
                   (cons '(1 2 "fff" 4) 13)))
 
@@ -340,8 +327,6 @@
                               (cons 'c #f))
                         40)))
 
-|#
-
 
   (define (string->json s)
     (let ([rs (parse json-pattern s)])
@@ -363,7 +348,7 @@
          (pair? (car json))
          (symbol? (caar json))))
 
-  ;; (assert (json-object? (list (cons 'a 6))))
+  (assert (json-object? (list (cons 'a 6))))
 
   (define (json-array? json)
     (or (eq? '() json)
@@ -394,7 +379,6 @@
                      "]")]
      [else (error 'json->string "json对象无效")]))
 
-  #|
   (test-json->string #t "true")
   (test-json->string #f "false")
   (test-json->string 'nil "null")
@@ -423,7 +407,6 @@
                       (cons 'b (list (cons 'a 8) (cons 'b "a"))))
                      "{\"a\":[\"a\",null],\"b\":{\"a\":8,\"b\":\"a\"}}")
 
-  |#
 
   #;(let* ([a (json->string
             (read-string-with-file "e:/aaa.txt" string->json))]

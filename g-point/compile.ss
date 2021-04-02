@@ -2,5 +2,5 @@
 (import (common compile))
 
 
-(compile-thirdpart-file (list "mongoose.c") "mongoose.dll")
+(compile-thirdpart-file (list "mongoose.c") "mongoose")
 

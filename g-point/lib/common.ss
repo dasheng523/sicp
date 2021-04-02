@@ -89,7 +89,8 @@
     (fold-left (lambda (rs str)
                  (string-append rs
                                 (if (string-empty? rs) "" delim)
-                                str)) "" strs))
+                                str))
+               "" strs))
 
   ;; 将x合理变成字符串
   (define (->string x)
@@ -100,12 +101,6 @@
     (lambda (proc ls)
       (apply append (map proc ls))))
 
-
-  #;(define (bytevector->string bv)
-    (call-with-port
-     (open-bytevector-input-port bv (native-transcoder))
-     (lambda (p)
-       (get-string-all p))))
 
 
   ;; file相关函数

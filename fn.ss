@@ -7,3 +7,6 @@
 
 
 ;; do 做循环
+
+
+;; assq 类似map-get

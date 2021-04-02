@@ -94,14 +94,14 @@
     (string-append (current-project-dire) "/thirdpart/lib"))
 
 
-  ;;(adapt-thirdpart-path (list "mongoose.h" "mongoose.c") "mongoose.dll")
+  ;;(adapt-thirdpart-path (list "mongoose.c") "mongoose")
   (define (adapt-thirdpart-path source-list target-name)
     (define prefix-path
       (lambda (x)
         (string-append thirdpart-source-dire "/" x)))
     (define lib-path
       (lambda (x)
-        (string-append thirdpart-lib-dire "/" x)))
+        (string-append thirdpart-lib-dire "/" x (current-system-suffix))))
     (values
      (map prefix-path source-list)
      (lib-path target-name)))

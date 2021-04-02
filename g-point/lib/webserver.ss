@@ -12,6 +12,7 @@
   (import (chezscheme)
           (lib common)
           (common combinator)
+          (common utils)
           (ffi mongoose)
           (ffi ffi-utils))
 
@@ -35,13 +36,6 @@
       (mg_http_write_chunk conn buf len)))
 
 
-  (define (make-map k v . kvs)
-    (let ([n (length kvs)])
-      (assert (even? n))
-      (cond
-       [(= n 0) (list (cons k v))]
-       [else (append (make-map k v)
-                     (apply make-map kvs))])))
 
   (define char*->string2
     (compose utf8->string char*->u8))
